@@ -1,0 +1,8 @@
+{"task": "What is 45 * 3?", "tools": ["calculator", "search_docs"], "expected_tool": "calculator"}
+{"task": "Compute 128 + 256.", "tools": ["calculator", "search_docs"], "expected_tool": "calculator"}
+{"task": "Find the section about self-attention in the docs.", "tools": ["calculator", "search_docs"], "expected_tool": "search_docs"}
+{"task": "Look up how chunking is configured.", "tools": ["calculator", "search_docs"], "expected_tool": "search_docs"}
+{"task": "Calculate 999 - 1.", "tools": ["calculator", "search_docs"], "expected_tool": "calculator"}
+{"task": "Search the corpus for the definition of perplexity.", "tools": ["calculator", "search_docs"], "expected_tool": "search_docs"}
+{"task": "What is 7 * 12?", "tools": ["calculator", "search_docs"], "expected_tool": "calculator"}
+{"task": "Retrieve the passage describing the training loop.", "tools": ["calculator", "search_docs"], "expected_tool": "search_docs"}

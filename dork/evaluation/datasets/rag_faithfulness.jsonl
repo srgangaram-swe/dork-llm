@@ -1,0 +1,8 @@
+{"question": "What does the retriever return before generation?", "context": ["The retriever returns the top-k most relevant chunks for a query.", "Chunks are embedded and stored in a vector database."], "answerable": true}
+{"question": "How are documents stored for search?", "context": ["Documents are chunked, embedded, and stored in a vector database.", "Each chunk keeps metadata such as source and offset."], "answerable": true}
+{"question": "What keeps an answer grounded?", "context": ["Grounded answers cite the retrieved chunks that support each claim.", "If evidence is insufficient, the system refuses to answer."], "answerable": true}
+{"question": "What does the system do when evidence is insufficient?", "context": ["If retrieval finds no chunk above the score threshold, the assistant refuses.", "Refusing avoids hallucination."], "answerable": true}
+{"question": "What metadata does each chunk keep?", "context": ["Each chunk stores its source path, chunk index, and character offsets.", "Metadata enables precise citations."], "answerable": true}
+{"question": "Why is reranking used?", "context": ["Reranking reorders retrieved chunks by relevance to improve precision.", "The top reranked chunks are passed to the generator."], "answerable": true}
+{"question": "What was the revenue of the company in 2024?", "context": ["The retriever returns the top-k most relevant chunks for a query.", "Chunks are embedded and stored in a vector database."], "answerable": false}
+{"question": "Who is the CEO mentioned in the documents?", "context": ["Grounded answers cite the retrieved chunks that support each claim.", "Reranking reorders retrieved chunks by relevance."], "answerable": false}

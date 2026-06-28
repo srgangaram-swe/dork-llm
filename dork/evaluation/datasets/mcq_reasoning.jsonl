@@ -1,0 +1,10 @@
+{"question": "Which data structure offers O(1) average-time lookups by key?", "options": ["Hash map", "Linked list", "Binary search tree", "Array"], "answer": "A"}
+{"question": "In a transformer, what mechanism lets each token attend to others?", "options": ["Convolution", "Self-attention", "Pooling", "Dropout"], "answer": "B"}
+{"question": "What does a high softmax temperature do to sampling?", "options": ["Makes it greedy", "Has no effect", "Increases randomness", "Removes the vocabulary"], "answer": "C"}
+{"question": "Which loss is standard for next-token language modeling?", "options": ["Hinge loss", "MSE", "Triplet loss", "Cross-entropy"], "answer": "D"}
+{"question": "What is the purpose of causal masking in a decoder?", "options": ["Prevent attending to future tokens", "Speed up training only", "Normalize gradients", "Increase vocab size"], "answer": "A"}
+{"question": "Which method retrieves evidence before generation?", "options": ["Fine-tuning", "RAG", "Quantization", "Distillation"], "answer": "B"}
+{"question": "Perplexity is the exponential of which quantity?", "options": ["Accuracy", "Top-k", "Average negative log-likelihood", "Learning rate"], "answer": "C"}
+{"question": "Which positional scheme rotates query/key vectors?", "options": ["Learned", "Sinusoidal", "None", "RoPE"], "answer": "D"}
+{"question": "Nucleus (top-p) sampling keeps tokens until cumulative probability reaches:", "options": ["p", "1.0 always", "0", "k"], "answer": "A"}
+{"question": "Weight tying in GPT shares parameters between:", "options": ["Two attention heads", "Embedding and output projection", "Encoder and decoder", "Optimizer states"], "answer": "B"}

@@ -1,0 +1,53 @@
+# ─────────────────────────────────────────────────────────────────────────
+# Dork LLM — RAG + agentic research assistant configuration.
+# Local-first: works fully offline with the deterministic hash embedder and
+# an in-memory vector store. Swap in sentence-transformers + Chroma for real use.
+# ─────────────────────────────────────────────────────────────────────────
+seed: 1337
+
+ingest:
+  source_dir: data/sample_docs
+  # Supported extensions: .txt .md .markdown .pdf
+  glob: "**/*"
+  chunking:
+    strategy: recursive     # recursive | fixed | sentence
+    chunk_size: 512         # target tokens (approx via whitespace)
+    chunk_overlap: 64
+    min_chunk_chars: 64
+
+embeddings:
+  # Backend: hash (offline, deterministic) | sentence_transformers
+  backend: hash
+  model_name: sentence-transformers/all-MiniLM-L6-v2
+  dim: 256                  # used by the hash backend
+  normalize: true
+  batch_size: 32
+
+vector_store:
+  # Backend: memory (numpy, no deps) | chroma (persistent)
+  backend: memory
+  persist_dir: .chroma
+  collection: dork_docs
+
+retrieval:
+  top_k: 5
+  rerank: true
+  rerank_top_n: 3
+  # Minimum cosine similarity to consider a chunk relevant.
+  min_score: 0.15
+
+generation:
+  # Which model answers grounded questions: mock | local_gpt | hf
+  provider: mock
+  name: artifacts/tiny_gpt
+  temperature: 0.0
+  max_new_tokens: 256
+  # If no chunk passes min_score, refuse rather than hallucinate.
+  refuse_when_insufficient: true
+  cite: true
+
+agent:
+  max_steps: 6
+  # Tools available to the research agent.
+  tools: ["search_docs", "calculator", "summarize", "compare_docs", "python_exec"]
+  allow_code_exec: true       # sandboxed, restricted builtins only

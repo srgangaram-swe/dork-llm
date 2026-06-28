@@ -1,0 +1,64 @@
+# ─────────────────────────────────────────────────────────────────────────
+# Dork LLM — Tiny GPT training configuration.
+#
+# This is a *compact, educational-scale* config. It trains a ~10M parameter
+# decoder-only transformer on a small public corpus in minutes on CPU and
+# seconds on a single GPU. It is NOT a frontier-scale model — see docs/limitations.md.
+# ─────────────────────────────────────────────────────────────────────────
+seed: 1337
+
+data:
+  # Supported: tiny_shakespeare | tinystories | wikitext2 | custom
+  dataset: tiny_shakespeare
+  data_dir: data
+  # For `custom`, point raw_path at a local UTF-8 text file.
+  raw_path: data/raw/tiny_shakespeare.txt
+  val_fraction: 0.1
+
+tokenizer:
+  # Supported: bpe (byte-level, trained) | char (character-level, no training)
+  type: bpe
+  vocab_size: 4096
+  path: tokenizers/tiny_gpt_bpe.json
+  # Special tokens used during training/generation.
+  special_tokens: ["<|endoftext|>", "<|pad|>", "<|unk|>"]
+
+model:
+  # vocab_size is auto-synced to the tokenizer at train time.
+  block_size: 256        # context length
+  n_layer: 6
+  n_head: 6
+  n_embd: 384            # must be divisible by n_head
+  dropout: 0.1
+  bias: false            # GPT-2 style: no bias in Linear/LayerNorm
+  pos_encoding: learned  # learned | sinusoidal | rope
+
+training:
+  batch_size: 32
+  max_steps: 2000
+  gradient_accumulation_steps: 1
+  eval_interval: 250
+  eval_iters: 100
+  log_interval: 50
+  # Optimizer (AdamW)
+  learning_rate: 3.0e-4
+  weight_decay: 0.1
+  beta1: 0.9
+  beta2: 0.95
+  grad_clip: 1.0
+  # LR schedule (cosine with linear warmup)
+  decay_lr: true
+  warmup_steps: 100
+  min_lr: 3.0e-5
+  # Runtime
+  device: auto           # auto | cpu | cuda | mps
+  dtype: auto            # auto | float32 | bfloat16 | float16
+  compile: false         # torch.compile (PyTorch 2.x)
+  out_dir: artifacts/tiny_gpt
+  always_save_checkpoint: false
+
+generation:
+  max_new_tokens: 200
+  temperature: 0.8
+  top_k: 50
+  top_p: 0.95

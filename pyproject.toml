@@ -1,0 +1,131 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dork-llm"
+version = "0.1.0"
+description = "An end-to-end LLM systems platform: a tiny GPT trained from scratch, a reusable evaluation harness, and a cited RAG + agentic research assistant."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "srgangaram-swe" }]
+keywords = ["llm", "transformer", "gpt", "rag", "agents", "evaluation", "pytorch", "mlops"]
+classifiers = [
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "License :: OSI Approved :: MIT License",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+# Core dependencies are intentionally light so the package imports and the CLI
+# runs without heavyweight ML stacks. Feature-specific deps live in extras.
+dependencies = [
+  "numpy>=1.24",
+  "pyyaml>=6.0",
+  "rich>=13.0",
+  "tqdm>=4.65",
+  "pydantic>=2.5",
+  "typer>=0.12",
+]
+
+[project.optional-dependencies]
+train = [
+  "torch>=2.1",
+  "tokenizers>=0.15",
+  "datasets>=2.14",
+]
+rag = [
+  "sentence-transformers>=2.2",
+  "chromadb>=0.4",
+  "pypdf>=3.17",
+]
+eval = [
+  "pandas>=2.0",
+  "matplotlib>=3.7",
+]
+serve = [
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.27",
+  "streamlit>=1.30",
+  "httpx>=0.25",
+]
+dev = [
+  "pytest>=7.4",
+  "pytest-cov>=4.1",
+  "ruff>=0.4",
+  "black>=24.0",
+  "mypy>=1.8",
+  "pre-commit>=3.5",
+  "types-PyYAML",
+  "types-tqdm",
+]
+all = [
+  "dork-llm[train,rag,eval,serve,dev]",
+]
+
+[project.urls]
+Homepage = "https://github.com/srgangaram-swe/dork-llm"
+Repository = "https://github.com/srgangaram-swe/dork-llm"
+Issues = "https://github.com/srgangaram-swe/dork-llm/issues"
+
+[project.scripts]
+dork = "dork.cli:app"
+
+[tool.setuptools.packages.find]
+include = ["dork*"]
+
+[tool.setuptools.package-data]
+dork = ["py.typed"]
+
+# ─────────────────────────────── Ruff ───────────────────────────────
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["dork", "scripts", "apps", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "C4", "SIM", "RUF"]
+ignore = [
+  "E501",  # line length handled by black/formatter
+  "B008",  # function call in default arg (typer/FastAPI idiom)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]
+"__init__.py" = ["F401"]
+
+# ─────────────────────────────── Black ──────────────────────────────
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+# ─────────────────────────────── Mypy ───────────────────────────────
+[tool.mypy]
+# Intentionally unpinned: mypy uses the running interpreter's version, which
+# matches each CI matrix entry (3.11/3.12) and avoids stub-syntax mismatches.
+plugins = ["pydantic.mypy"]
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = false
+ignore_missing_imports = true
+check_untyped_defs = true
+disallow_incomplete_defs = false
+no_implicit_optional = true
+files = ["dork"]
+
+# ────────────────────────────── Pytest ──────────────────────────────
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q --strict-markers"
+testpaths = ["tests"]
+markers = [
+  "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+  "torch: requires the [train] extra (PyTorch) to be installed",
+  "rag: requires the [rag] extra to be installed",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["dork"]
+omit = ["dork/serving/*", "apps/*"]

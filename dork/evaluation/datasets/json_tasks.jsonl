@@ -1,0 +1,8 @@
+{"prompt": "Extract structured fields from: 'Ada Lovelace, age 36, mathematician.'", "required_keys": ["name", "age", "role"]}
+{"prompt": "Summarize this ticket as structured data: 'Login page returns 500 on submit.'", "required_keys": ["title", "severity", "component"]}
+{"prompt": "Represent the book 'Dune by Frank Herbert, 1965' as a record.", "required_keys": ["title", "author", "year"]}
+{"prompt": "Parse the order 'SKU-42, quantity 3, priority high'.", "required_keys": ["sku", "quantity", "priority"]}
+{"prompt": "Describe a sentiment classification result for a positive review.", "required_keys": ["label", "confidence"]}
+{"prompt": "Capture the experiment config: 6 layers, lr 0.0003.", "required_keys": ["n_layer", "learning_rate"]}
+{"prompt": "Represent a city fact: 'Tokyo, population 37000000, country Japan'.", "required_keys": ["city", "population", "country"]}
+{"prompt": "Encode the API response status for a healthy service.", "required_keys": ["status", "uptime"]}

@@ -1,0 +1,78 @@
+"""Tests for the tiny GPT model and sampling (require the [train] extra)."""
+
+from __future__ import annotations
+
+import pytest
+
+torch = pytest.importorskip("torch")
+
+from dork.generation.sampling import apply_top_k, apply_top_p, sample_next_token  # noqa: E402
+from dork.models.tiny_gpt import TinyGPT  # noqa: E402
+
+pytestmark = pytest.mark.torch
+
+
+def test_forward_shapes(tiny_model_config):
+    model = TinyGPT(tiny_model_config)
+    x = torch.randint(0, tiny_model_config.vocab_size, (2, tiny_model_config.block_size))
+    logits, loss = model(x, x)
+    assert logits.shape == (2, tiny_model_config.block_size, tiny_model_config.vocab_size)
+    assert loss.ndim == 0 and loss.item() > 0
+
+
+def test_inference_fastpath_returns_last_position(tiny_model_config):
+    model = TinyGPT(tiny_model_config)
+    x = torch.randint(0, tiny_model_config.vocab_size, (1, 5))
+    logits, loss = model(x)
+    assert logits.shape == (1, 1, tiny_model_config.vocab_size)
+    assert loss is None
+
+
+def test_weight_tying(tiny_model_config):
+    model = TinyGPT(tiny_model_config)
+    assert model.lm_head.weight is model.token_emb.weight
+
+
+def test_generate_extends_sequence(tiny_model_config):
+    model = TinyGPT(tiny_model_config)
+    idx = torch.zeros((1, 3), dtype=torch.long)
+    out = model.generate(idx, max_new_tokens=7, temperature=1.0, top_k=5)
+    assert out.shape == (1, 10)
+
+
+def test_block_size_guard(tiny_model_config):
+    model = TinyGPT(tiny_model_config)
+    too_long = torch.zeros((1, tiny_model_config.block_size + 1), dtype=torch.long)
+    with pytest.raises(ValueError):
+        model(too_long)
+
+
+@pytest.mark.parametrize("pos", ["learned", "sinusoidal", "rope"])
+def test_positional_variants_forward(pos):
+    from dork.utils.config import ModelConfig
+
+    cfg = ModelConfig(
+        vocab_size=64, block_size=16, n_layer=2, n_head=2, n_embd=32, pos_encoding=pos
+    )
+    model = TinyGPT(cfg)
+    x = torch.randint(0, 64, (1, 16))
+    logits, _ = model(x)
+    assert logits.shape[-1] == 64
+
+
+def test_greedy_sampling_is_argmax():
+    logits = torch.tensor([[0.1, 5.0, 0.2]])
+    assert sample_next_token(logits, temperature=0.0).item() == 1
+
+
+def test_top_k_masks_low_logits():
+    logits = torch.tensor([[1.0, 2.0, 3.0, 4.0]])
+    masked = apply_top_k(logits.clone(), top_k=2)
+    assert torch.isinf(masked[0, 0]) and torch.isinf(masked[0, 1])
+    assert not torch.isinf(masked[0, 3])
+
+
+def test_top_p_keeps_top_token():
+    logits = torch.tensor([[10.0, 1.0, 0.5]])
+    masked = apply_top_p(logits.clone(), top_p=0.5)
+    assert not torch.isinf(masked[0, 0])

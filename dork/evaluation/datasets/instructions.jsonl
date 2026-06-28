@@ -1,0 +1,8 @@
+{"prompt": "Summary: Explain attention in transformers in one short line.", "constraints": {"must_include": ["Summary"], "max_words": 30}}
+{"prompt": "Summary: Describe what RAG does for grounding answers.", "constraints": {"must_include": ["Summary"], "max_words": 40}}
+{"prompt": "Summary: State why evaluation matters before deployment.", "constraints": {"must_include": ["Summary"], "must_exclude": ["lorem"]}}
+{"prompt": "Summary: Give a one-sentence definition of perplexity.", "constraints": {"starts_with": "Summary", "max_words": 35}}
+{"prompt": "Summary: Note one benefit of checkpointing during training.", "constraints": {"must_include": ["Summary"], "min_words": 2}}
+{"prompt": "Summary: Mention one safety consideration for LLM apps.", "constraints": {"must_include": ["Summary"], "max_words": 50}}
+{"prompt": "Summary: Briefly state what causal masking prevents.", "constraints": {"starts_with": "Summary"}}
+{"prompt": "Summary: Describe top-p sampling in plain terms.", "constraints": {"must_include": ["Summary"], "must_exclude": ["error"]}}

@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Lint, type-check & test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install CPU PyTorch
+        run: pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.1"
+
+      - name: Install package (dev + extras)
+        run: pip install -e ".[train,eval,dev]"
+
+      - name: Ruff (lint)
+        run: ruff check dork scripts apps tests
+
+      - name: Black (format check)
+        run: black --check dork scripts apps tests
+
+      - name: Mypy (type-check)
+        run: mypy dork
+
+      - name: Pytest
+        run: pytest -m "not slow" --cov=dork --cov-report=term-missing
+
+  smoke-train:
+    name: Smoke train tiny GPT (1 step)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install CPU PyTorch
+        run: pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.1"
+      - name: Install package
+        run: pip install -e ".[train,eval]"
+      - name: End-to-end smoke (tokenizer + 5-step train + generate)
+        run: python scripts/smoke_test.py

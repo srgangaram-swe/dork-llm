@@ -1,0 +1,63 @@
+# ─────────────────────────────────────────────────────────────────────────
+# Dork LLM — Evaluation harness configuration.
+#
+# The harness can evaluate (a) the locally trained tiny GPT, (b) Hugging Face
+# open models, or (c) a deterministic mock model for offline CI. Suites are
+# composable; disable any you don't want to run.
+# ─────────────────────────────────────────────────────────────────────────
+seed: 1337
+
+model:
+  # Provider: local_gpt | hf | mock
+  #   local_gpt -> loads artifacts/tiny_gpt/ckpt.pt
+  #   hf        -> loads `name` via transformers (requires extra install)
+  #   mock      -> deterministic stub; great for CI and harness self-tests
+  provider: mock
+  name: artifacts/tiny_gpt
+  device: auto
+  max_new_tokens: 128
+  temperature: 0.0       # greedy for reproducible eval
+
+datasets_dir: dork/evaluation/datasets
+
+# Each suite maps to an evaluator module. Toggle on/off as needed.
+suites:
+  perplexity:
+    enabled: true
+    corpus: data/raw/tiny_shakespeare.txt
+    max_tokens: 20000
+  exact_match:
+    enabled: true
+    path: arithmetic.jsonl
+  multiple_choice:
+    enabled: true
+    path: mcq_reasoning.jsonl
+  json_validity:
+    enabled: true
+    path: json_tasks.jsonl
+    schema_check: true
+  instruction_following:
+    enabled: true
+    path: instructions.jsonl
+  rag_faithfulness:
+    enabled: true
+    path: rag_faithfulness.jsonl
+  tool_use:
+    enabled: true
+    path: tool_use.jsonl
+  safety_refusal:
+    enabled: true
+    path: safety_refusal.jsonl
+  latency:
+    enabled: true
+    n_requests: 20
+    prompt: "Summarize the theory of relativity in one sentence."
+
+report:
+  out_dir: reports
+  formats: ["json", "csv", "markdown"]
+  plots: true
+  # CI gating: fail the run if a metric drops below threshold.
+  thresholds:
+    json_validity.valid_rate: 0.0   # mock model won't pass; raise for real models
+    exact_match.accuracy: 0.0
