@@ -43,8 +43,13 @@ class Generator:
         top_k: int | None = None,
         top_p: float | None = None,
         seed: int | None = None,
+        use_cache: bool = True,
     ) -> str:
-        """Generate a continuation of ``prompt`` and return only the new text."""
+        """Generate a continuation of ``prompt`` and return only the new text.
+
+        ``use_cache`` selects the fast KV-cached decode path (default); set it to
+        False to use the O(T²) reference path (useful for benchmarking/debugging).
+        """
         import torch
 
         cfg = cfg or GenerationConfig()
@@ -60,6 +65,7 @@ class Generator:
                 temperature=temperature if temperature is not None else cfg.temperature,
                 top_k=top_k if top_k is not None else cfg.top_k,
                 top_p=top_p if top_p is not None else cfg.top_p,
+                use_cache=use_cache,
             )
         new_ids = out[0, len(ids) :].tolist()
         return self.tokenizer.decode(new_ids)

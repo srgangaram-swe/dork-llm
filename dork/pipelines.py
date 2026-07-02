@@ -102,11 +102,14 @@ def generate(config_path: str, prompt: str, **overrides: Any) -> str:
 
 
 def benchmark(config_path: str, n_requests: int = 20) -> dict[str, Any]:
-    """Benchmark generation latency/throughput for the trained model."""
+    """Benchmark generation latency/throughput and the KV-cache speedup.
+
+    Times the same decode both with the KV cache and with the O(T²) reference
+    path so the report quantifies the inference optimization, not just raw speed.
+    """
     import time
 
     cfg = load_tiny_gpt_config(config_path)
-    text = generate  # noqa: F841 (keep import graph warm)
     from dork.generation.generator import Generator
     from dork.tokenizer.factory import load_tokenizer
     from dork.training.checkpoint import load_model_from_checkpoint
@@ -118,22 +121,39 @@ def benchmark(config_path: str, n_requests: int = 20) -> dict[str, Any]:
     gen = Generator(model, tokenizer, device=device)
 
     prompt = "Once upon a time"
-    latencies = []
     tokens = cfg.generation.max_new_tokens
-    for _ in range(n_requests):
-        t0 = time.perf_counter()
-        gen.generate(prompt, max_new_tokens=tokens, temperature=0.8)
-        latencies.append(time.perf_counter() - t0)
-    latencies.sort()
-    mean_s = sum(latencies) / len(latencies)
+    gen.generate(prompt, max_new_tokens=8, temperature=0.8)  # warmup
+
+    def _time(use_cache: bool) -> list[float]:
+        lat = []
+        for _ in range(n_requests):
+            t0 = time.perf_counter()
+            gen.generate(prompt, max_new_tokens=tokens, temperature=0.8, use_cache=use_cache)
+            lat.append(time.perf_counter() - t0)
+        return sorted(lat)
+
+    def _summary(lat: list[float]) -> dict[str, float]:
+        mean_s = sum(lat) / len(lat)
+        return {
+            "mean_ms": mean_s * 1000,
+            "p50_ms": lat[len(lat) // 2] * 1000,
+            "p95_ms": lat[min(len(lat) - 1, int(0.95 * len(lat)))] * 1000,
+            "tokens_per_sec": tokens / mean_s if mean_s else float("inf"),
+        }
+
+    kv = _summary(_time(use_cache=True))
+    ref = _summary(_time(use_cache=False))
     return {
         "device": device,
+        "params": model.num_params(),
         "n_requests": n_requests,
         "new_tokens": tokens,
-        "mean_ms": mean_s * 1000,
-        "p50_ms": latencies[len(latencies) // 2] * 1000,
-        "p95_ms": latencies[min(len(latencies) - 1, int(0.95 * len(latencies)))] * 1000,
-        "tokens_per_sec": tokens / mean_s if mean_s else float("inf"),
+        "kv_cache": kv,
+        "reference": ref,
+        "speedup": ref["mean_ms"] / kv["mean_ms"] if kv["mean_ms"] else float("inf"),
+        # Flattened aliases for backwards-compatible dashboards.
+        "mean_ms": kv["mean_ms"],
+        "tokens_per_sec": kv["tokens_per_sec"],
     }
 
 

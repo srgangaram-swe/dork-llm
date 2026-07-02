@@ -60,6 +60,32 @@ def test_positional_variants_forward(pos):
     assert logits.shape[-1] == 64
 
 
+@pytest.mark.parametrize("pos", ["learned", "sinusoidal", "rope"])
+def test_kv_cache_matches_reference(pos):
+    """Greedy decoding must be numerically identical with and without the KV cache."""
+    from dork.utils.config import ModelConfig
+
+    torch.manual_seed(0)
+    cfg = ModelConfig(
+        vocab_size=96, block_size=64, n_layer=3, n_head=4, n_embd=64, dropout=0.0, pos_encoding=pos
+    )
+    model = TinyGPT(cfg)
+    model.eval()
+    idx = torch.randint(0, 96, (1, 8))
+    ref = model.generate(idx, max_new_tokens=24, temperature=0.0, use_cache=False)
+    cached = model.generate(idx, max_new_tokens=24, temperature=0.0, use_cache=True)
+    assert torch.equal(ref, cached)
+
+
+def test_kv_cache_crosses_context_window(tiny_model_config):
+    """Generating beyond block_size must not crash (cache is re-prefilled)."""
+    model = TinyGPT(tiny_model_config)
+    model.eval()
+    idx = torch.zeros((1, 4), dtype=torch.long)
+    out = model.generate(idx, max_new_tokens=tiny_model_config.block_size * 2, temperature=0.0)
+    assert out.shape[1] == 4 + tiny_model_config.block_size * 2
+
+
 def test_greedy_sampling_is_argmax():
     logits = torch.tensor([[0.1, 5.0, 0.2]])
     assert sample_next_token(logits, temperature=0.0).item() == 1
