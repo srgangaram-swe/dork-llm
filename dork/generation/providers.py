@@ -166,6 +166,15 @@ class LocalGPTModel(LanguageModel):
         model, payload = load_model_from_checkpoint(ckpt_dir, device=device)
         tok_path = payload.get("tokenizer_path") or "tokenizers/tiny_gpt_bpe.json"
         tokenizer = load_tokenizer(tok_path)
+        # Refuse a tokenizer/model vocab mismatch: it would produce out-of-range
+        # token ids at generation time. Callers (e.g. the service) treat this as
+        # "no usable model" and fall back to the mock rather than crashing later.
+        if tokenizer.vocab_size != model.config.vocab_size:
+            raise ValueError(
+                f"Tokenizer vocab ({tokenizer.vocab_size}) != model vocab "
+                f"({model.config.vocab_size}). Retrain so the tokenizer and "
+                f"checkpoint agree (make train-tokenizer && make train-small-gpt)."
+            )
         return cls(Generator(model, tokenizer, device=device))
 
     def complete(
