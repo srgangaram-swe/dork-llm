@@ -118,8 +118,6 @@ pip install -e ".[all]"     # everything + dev tooling
 
 Everything is also available via the `dork` CLI (e.g. `dork eval`, `dork query --question "…"`, `dork agent --task "…"`).
 
-## Example outputs
-
 ## Training artifacts
 
 Generated model artifacts are intentionally **not committed**:
