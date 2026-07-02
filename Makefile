@@ -100,6 +100,10 @@ benchmark-inference: benchmark ## Alias for `make benchmark`
 .PHONY: benchmark_inference
 benchmark_inference: benchmark ## Alias for `make benchmark`
 
+.PHONY: scaling-study
+scaling-study: ## Run the reproducible scaling study (params vs. loss + plot)
+	$(PY) scripts/scaling_study.py
+
 .PHONY: smoke
 smoke: ## Run the end-to-end smoke test used by CI
 	$(PY) scripts/smoke_test.py
