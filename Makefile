@@ -65,6 +65,10 @@ train-tokenizer: ## Train the BPE tokenizer
 train-small-gpt: ## Train the tiny GPT from scratch
 	$(PY) scripts/train_tiny_gpt.py --config $(TRAIN_CONFIG)
 
+.PHONY: sft
+sft: ## Instruction-tune (SFT) the base model
+	$(PY) scripts/finetune_sft.py --config $(TRAIN_CONFIG)
+
 .PHONY: generate
 generate: ## Generate text from the trained model
 	$(PY) scripts/generate_text.py --config $(TRAIN_CONFIG) --prompt "Once upon a time"

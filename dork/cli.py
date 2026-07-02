@@ -61,6 +61,12 @@ def train(config: str = TRAIN_CFG) -> None:
 
 
 @app.command()
+def sft(config: str = TRAIN_CFG) -> None:
+    """Instruction-tune (SFT) the base model; reports before/after perplexity."""
+    _echo(P.finetune_sft(config))
+
+
+@app.command()
 def generate(
     prompt: str = typer.Option("Once upon a time", help="Prompt to continue."),
     config: str = TRAIN_CFG,

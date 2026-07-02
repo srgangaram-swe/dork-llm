@@ -32,3 +32,10 @@ class Tokenizer(abc.ABC):
     def encode_batch(self, texts: list[str]) -> list[list[int]]:
         """Encode many strings (override for vectorized backends)."""
         return [self.encode(t) for t in texts]
+
+    def token_to_id(self, token: str) -> int | None:
+        """Return the id of a (special) token by name, or None if absent.
+
+        Used by post-training to locate the end-of-text token for label masking.
+        """
+        return None

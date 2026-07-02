@@ -42,6 +42,9 @@ class CharTokenizer(Tokenizer):
         unk = self.unk_id
         return [self.stoi.get(ch, unk) for ch in text]
 
+    def token_to_id(self, token: str) -> int | None:
+        return self.stoi.get(token)
+
     def decode(self, ids: list[int]) -> str:
         specials = set(self.special_tokens)
         out = []

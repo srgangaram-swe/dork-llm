@@ -157,6 +157,74 @@ def benchmark(config_path: str, n_requests: int = 20) -> dict[str, Any]:
     }
 
 
+# ─────────────────────── Post-training (SFT) ─────────────────────────
+def finetune_sft(config_path: str) -> dict[str, Any]:
+    """Instruction-tune the base tiny GPT on synthetic instruction data.
+
+    Loads the pretrained checkpoint (if present; otherwise fine-tunes a fresh
+    model so the path is always runnable), builds a masked instruction dataset,
+    fine-tunes, and reports before/after held-out response perplexity.
+    """
+    cfg = load_tiny_gpt_config(config_path)
+    seed_everything(cfg.seed)
+
+    from dork.data.datasets import prepare_corpus
+    from dork.data.instructions import split_instructions, synthetic_instructions
+    from dork.models.tiny_gpt import TinyGPT
+    from dork.tokenizer.factory import load_or_train_tokenizer
+    from dork.training.checkpoint import load_model_from_checkpoint
+    from dork.training.sft import SFTTrainer, build_sft_dataset
+    from dork.utils.config import TrainingConfig
+
+    sft = cfg.sft
+    text = prepare_corpus(cfg.data).read_text(encoding="utf-8")
+    tokenizer = load_or_train_tokenizer(cfg.tokenizer, text)
+
+    # Start from the pretrained base if it exists; otherwise a fresh model.
+    try:
+        model, _ = load_model_from_checkpoint(sft.base_out_dir, device="cpu")
+        base_source = sft.base_out_dir
+    except FileNotFoundError:
+        logger.warning("No base checkpoint at %s; fine-tuning a fresh model.", sft.base_out_dir)
+        cfg.model.vocab_size = tokenizer.vocab_size
+        model = TinyGPT(cfg.model)
+        base_source = "(fresh init)"
+
+    pairs = synthetic_instructions(n_arith=sft.n_arith, seed=cfg.seed)
+    train_pairs, val_pairs = split_instructions(pairs, sft.val_fraction, cfg.seed)
+    train_xy = build_sft_dataset(train_pairs, tokenizer, cfg.model.block_size)
+    val_xy = build_sft_dataset(val_pairs, tokenizer, cfg.model.block_size)
+
+    train_cfg = TrainingConfig(
+        batch_size=sft.batch_size,
+        max_steps=sft.max_steps,
+        eval_interval=sft.eval_interval,
+        warmup_steps=sft.warmup_steps,
+        learning_rate=sft.learning_rate,
+        min_lr=sft.min_lr,
+        out_dir=sft.out_dir,
+        device=cfg.training.device,
+        dtype="float32",
+    )
+    trainer = SFTTrainer(model, train_xy, val_xy, train_cfg, tokenizer_path=cfg.tokenizer.path)
+    before = trainer._eval_response_loss(val_xy)
+    history = trainer.train()
+    after = min((h["val"] for h in history), default=before)
+    import math
+
+    return {
+        "base_source": base_source,
+        "out_dir": sft.out_dir,
+        "n_train": len(train_pairs),
+        "n_val": len(val_pairs),
+        "val_response_loss_before": before,
+        "val_response_loss_after": after,
+        "val_ppl_before": math.exp(min(before, 20)),
+        "val_ppl_after": math.exp(min(after, 20)),
+        "steps": sft.max_steps,
+    }
+
+
 # ───────────────────────── Evaluation pipeline ───────────────────────
 def run_eval(config_path: str) -> dict[str, Any]:
     """Run the evaluation harness and write reports."""

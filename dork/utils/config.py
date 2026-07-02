@@ -81,6 +81,21 @@ class GenerationConfig(_Base):
     top_p: float | None = Field(0.95, ge=0.0, le=1.0)
 
 
+class SFTConfig(_Base):
+    """Supervised fine-tuning (post-training) settings."""
+
+    base_out_dir: str = "artifacts/tiny_gpt"  # checkpoint to fine-tune from
+    out_dir: str = "artifacts/tiny_gpt_sft"
+    n_arith: int = Field(48, ge=0)
+    val_fraction: float = Field(0.2, gt=0.0, lt=0.9)
+    batch_size: int = Field(16, ge=1)
+    max_steps: int = Field(300, ge=1)
+    eval_interval: int = Field(50, ge=1)
+    learning_rate: float = Field(1.0e-4, gt=0.0)
+    warmup_steps: int = Field(20, ge=0)
+    min_lr: float = Field(1.0e-5, ge=0.0)
+
+
 class TinyGPTConfig(_Base):
     """Aggregate config for the full tiny-GPT pipeline."""
 
@@ -90,6 +105,7 @@ class TinyGPTConfig(_Base):
     model: ModelConfig = Field(default_factory=ModelConfig)
     training: TrainingConfig = Field(default_factory=TrainingConfig)
     generation: GenerationConfig = Field(default_factory=GenerationConfig)
+    sft: SFTConfig = Field(default_factory=SFTConfig)
 
     @model_validator(mode="after")
     def _sync_vocab(self) -> TinyGPTConfig:
