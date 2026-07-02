@@ -15,6 +15,8 @@ capability.
 - Pre-norm transformer blocks.
 - Multi-head causal self-attention with PyTorch scaled dot-product attention
   when available.
+- Incremental KV-cache decoding for fast inference, with a reference decode path
+  used for numerical parity tests and speed benchmarks.
 - GELU MLP with 4x hidden expansion.
 - Residual connections, LayerNorm, dropout, AdamW, gradient clipping, cosine LR
   schedule, checkpointing, and weight tying.
@@ -28,7 +30,9 @@ This model is intended to show that the author can:
 
 - implement a transformer from first principles;
 - train and checkpoint a small causal language model;
+- post-train it with supervised instruction tuning (SFT);
 - evaluate perplexity and generation behavior;
+- benchmark KV-cache generation speedups;
 - expose the model through a reusable generation provider;
 - serve it through CLI, scripts, FastAPI, and Streamlit.
 
@@ -67,6 +71,8 @@ The local checkpoint and tokenizer are ignored by git. Regenerate them with:
 ```bash
 make train-tokenizer
 make train-small-gpt
+make sft
+make benchmark
 make generate
 ```
 
@@ -85,10 +91,17 @@ Use:
 ```bash
 make eval
 make benchmark_inference
+make scaling-study
+make experiments
 ```
 
 The evaluation harness can target the local checkpoint, a Hugging Face model, or
 the deterministic mock provider used in CI. See `docs/eval_harness.md`.
+
+The scaling study in `scripts/scaling_study.py` is a small ablation over model
+width/depth that writes `reports/scaling_study.json` and the committed plot at
+`docs/assets/scaling_study.png`. It is useful for demonstrating methodology, not
+for making frontier-scale claims.
 
 ## Risks and Mitigations
 
@@ -98,5 +111,6 @@ the deterministic mock provider used in CI. See `docs/eval_harness.md`.
   benign synthetic refusal tests, but this is not a safety certification.
 - Overclaiming risk: all docs state that the model is compact and
   educational-scale.
-- Reproducibility risk: configs, seeds, checkpoint metadata, and ignored artifact
-  rules keep runs repeatable without committing large binaries.
+- Reproducibility risk: configs, seeds, checkpoint metadata, local experiment
+  tracking, and ignored artifact rules keep runs repeatable without committing
+  large binaries.

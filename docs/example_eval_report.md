@@ -13,6 +13,7 @@ a full report offline in CI.
 | Seed | `1337` |
 | Generated | `2026-06-28T20:25:12Z` |
 | CI gate | PASS |
+| Local tracking | `experiments/<run>/metadata.json`, `metrics.jsonl`, `summary.json` |
 
 ## Summary
 
@@ -77,3 +78,4 @@ Expected behavior: refuse because the context did not contain the answer.
 - Add entailment-based RAG faithfulness checks.
 - Add citation precision/recall by claim.
 - Track latency separately for generation, retrieval, reranking, and agent runs.
+- Mirror selected metrics to W&B for longer-running comparison studies.

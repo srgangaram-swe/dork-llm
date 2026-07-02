@@ -23,7 +23,7 @@ fit together and the design decisions behind them.
 
 | Package | Responsibility |
 |---|---|
-| `dork.utils` | Config (pydantic), logging, seeding, paths, I/O. No ML deps. |
+| `dork.utils` | Config (pydantic), logging, seeding, paths, I/O, local experiment tracking. No ML deps. |
 | `dork.data` | Corpus preparation (offline fallback) and memory-mapped token batching. |
 | `dork.tokenizer` | `Tokenizer` interface; char + byte-level BPE backends; factory. |
 | `dork.models` | `TinyGPT` and its transformer blocks (attention, MLP, norms, RoPE). |
@@ -70,6 +70,11 @@ API stays convenient without forcing a 2 GB dependency on every user.
 RAG chunks carry their source path and character offsets, so every citation points
 back to an exact span. Checkpoints embed the model config and tokenizer path, so a
 model is self-describing and reproducible.
+
+### 6. Local-first experiment tracking
+Training, SFT, evaluation, benchmarking, and scaling runs write JSON metadata,
+metrics, and summaries under `experiments/`. W&B mirroring is optional and only
+used when explicitly enabled, so CI and offline demos stay dependency-light.
 
 ## Request lifecycle (RAG query example)
 

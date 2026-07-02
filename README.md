@@ -34,6 +34,7 @@ Most "LLM projects" are a single notebook calling an API. Real LLM/AI-systems wo
 | Subsystem | What it proves | Key modules |
 |---|---|---|
 | 🏗️ **Tiny GPT from scratch** | Transformer internals: token/positional embeddings, causal multi-head attention, residual stream, weight tying, AdamW + cosine schedule, checkpointing, sampling | [`dork/models`](dork/models), [`dork/training`](dork/training), [`dork/generation`](dork/generation) |
+| ⚡ **Fast inference + SFT** | KV-cache generation benchmark, instruction-tuning with response-only loss masking, and local/W&B experiment tracking | [`dork/models`](dork/models), [`dork/training/sft.py`](dork/training/sft.py), [`dork/utils/tracking.py`](dork/utils/tracking.py) |
 | 📊 **Evaluation harness** | Pre-deployment measurement: perplexity, exact-match, MCQ, JSON validity, instruction-following, RAG faithfulness, tool-use, safety, latency — with CI gating | [`dork/evaluation`](dork/evaluation) |
 | 🔎 **RAG + agent** | Grounded, cited answers over documents; an agent that searches, summarizes, compares, extracts claims, and uses tools — and refuses without evidence | [`dork/rag`](dork/rag), [`dork/agents`](dork/agents) |
 | 🚀 **Serving** | FastAPI service + Streamlit dashboard over a shared service layer | [`apps/api.py`](apps/api.py), [`apps/dashboard.py`](apps/dashboard.py) |
@@ -75,10 +76,13 @@ make smoke
 # 3. Train the tiny GPT, then generate
 make train-tokenizer
 make train-small-gpt
+make sft                                   # optional instruction tuning
 make generate                              # uses configs/train_tiny_gpt.yaml
 
 # 4. Evaluate (writes JSON/CSV/Markdown + a plot to reports/)
 make eval
+make benchmark                             # compares KV-cache vs reference decode
+make scaling-study                         # writes reports/scaling_study.json + committed plot
 
 # 5. Ingest the sample docs and ask a grounded question
 make ingest-docs
@@ -100,6 +104,7 @@ Requires **Python 3.11+**. Dependencies are grouped into extras so you install o
 pip install -e ".[train]"   # PyTorch + tokenizers (model training)
 pip install -e ".[rag]"     # sentence-transformers + chromadb + pypdf
 pip install -e ".[eval]"    # pandas + matplotlib (reports & plots)
+pip install -e ".[tracking]" # optional W&B integration
 pip install -e ".[serve]"   # fastapi + uvicorn + streamlit
 pip install -e ".[all]"     # everything + dev tooling
 ```
@@ -108,15 +113,22 @@ pip install -e ".[all]"     # everything + dev tooling
 
 | Command | Description |
 |---|---|
-| `make install` / `make smoke` / `make test` / `make lint` / `make format` / `make typecheck` | Dev workflow |
-| `make train-tokenizer` / `make train-small-gpt` / `make generate` | Tiny GPT pipeline |
+| `make install` / `make smoke` / `make test` / `make lint` / `make format-check` / `make format` / `make typecheck` | Dev workflow |
+| `make train-tokenizer` / `make train-small-gpt` / `make sft` / `make generate` | Tiny GPT pipeline |
 | `make eval` | Run the evaluation harness |
 | `make ingest-docs` / `make query-rag Q=...` / `make run-agent TASK=...` | RAG + agent |
-| `make benchmark` / `make benchmark_inference` / `make benchmark-inference` | Latency/throughput benchmark |
+| `make benchmark` / `make benchmark_inference` / `make benchmark-inference` | KV-cache vs reference latency/throughput benchmark |
+| `make scaling-study` | Reproducible params-vs-loss study and plot |
+| `make experiments` | List local experiment tracking runs |
 | `make api` / `make dashboard` | Serving |
 | `make docker-build` / `make docker-run` | Containerized run |
 
 Everything is also available via the `dork` CLI (e.g. `dork eval`, `dork query --question "…"`, `dork agent --task "…"`).
+
+Local experiment tracking writes ignored run directories under `experiments/`
+for training, SFT, eval, inference benchmarks, and scaling runs. Set
+`tracking.wandb: true` or `DORK_WANDB=1` after installing `.[tracking]` to mirror
+the same metrics to Weights & Biases.
 
 ## Training artifacts
 
@@ -129,6 +141,7 @@ Generated model artifacts are intentionally **not committed**:
 | tokenized bins + checkpoint | `artifacts/tiny_gpt/` | `make train-small-gpt` |
 | vector store | `.chroma/` or configured store dir | `make ingest-docs` |
 | eval reports and plots | `reports/` | `make eval` |
+| experiment run history | `experiments/` | `make train-small-gpt`, `make eval`, `make benchmark`, `make scaling-study` |
 
 This keeps the public repo small and reviewable while preserving full regeneration commands.
 
@@ -196,6 +209,7 @@ The checkpoint from that run is local-only and ignored by git; see [docs/model_c
 | [docs/example_eval_report.md](docs/example_eval_report.md) | A sample evaluation report |
 | [data/README.md](data/README.md) | Public-data policy and regeneration notes |
 | [docs/github_issues_plan.md](docs/github_issues_plan.md) | GitHub labels, milestones, and issue bootstrap commands |
+| [notebooks/train.ipynb](notebooks/train.ipynb) · [notebooks/evaluate.ipynb](notebooks/evaluate.ipynb) · [notebooks/rag_demo.ipynb](notebooks/rag_demo.ipynb) | Notebook demos for training, evaluation, and RAG |
 | [docs/portfolio_summary.md](docs/portfolio_summary.md) · [docs/resume_bullets.md](docs/resume_bullets.md) · [docs/linkedin_post.md](docs/linkedin_post.md) | Portfolio materials |
 
 ## Project layout
@@ -209,6 +223,7 @@ configs/         # typed YAML configs (train / eval / rag)
 data/sample_docs # small public docs for the RAG demo
 tests/           # unit + integration tests (pytest)
 docs/            # architecture, model card, design docs, portfolio materials
+notebooks/       # runnable train / evaluate / RAG walkthroughs
 ```
 
 ## GitHub project management

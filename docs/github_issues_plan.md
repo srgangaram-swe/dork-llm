@@ -1,18 +1,13 @@
 # GitHub Issues Plan
 
-Status checked on 2026-06-28:
+Prepared on 2026-07-02 for:
 
 - Remote: `https://github.com/srgangaram-swe/dork-llm`
 - Default branch: `main`
-- Repository visibility: public
-- Remote commits: none visible before the first local publish
-- Issues: none
-- Milestones: none
-- Labels: only GitHub defaults
-- Local `gh` status: installed but not authenticated
+- Repository: `srgangaram-swe/dork-llm`
 
-Because the local GitHub CLI session was not authenticated, this file provides a
-ready-to-run bootstrap script. Run it after:
+This file provides a ready-to-run bootstrap script for labels, milestones, and
+issues. Run it after:
 
 ```bash
 gh auth login
@@ -33,15 +28,20 @@ gh label create architecture -R "$REPO" --color "5319e7" --description "Architec
 gh label create data -R "$REPO" --color "0e8a16" --description "Datasets, ingestion, and preprocessing" --force
 gh label create tokenizer -R "$REPO" --color "1d76db" --description "Tokenizer training and loading" --force
 gh label create model -R "$REPO" --color "0052cc" --description "Model architecture and inference" --force
+gh label create inference -R "$REPO" --color "c5def5" --description "Generation performance and serving-time model behavior" --force
 gh label create training -R "$REPO" --color "006b75" --description "Training loop, optimization, and checkpoints" --force
+gh label create post-training -R "$REPO" --color "5319e7" --description "SFT, instruction tuning, and post-training workflows" --force
 gh label create evaluation -R "$REPO" --color "fbca04" --description "Evaluation suites, metrics, and reports" --force
+gh label create experiments -R "$REPO" --color "d4c5f9" --description "Scaling studies, ablations, benchmarks, and tracking" --force
 gh label create rag -R "$REPO" --color "0e8a16" --description "Retrieval augmented generation" --force
 gh label create agents -R "$REPO" --color "bfdadc" --description "Agent tools and orchestration" --force
 gh label create api -R "$REPO" --color "1d76db" --description "FastAPI service" --force
 gh label create dashboard -R "$REPO" --color "c2e0c6" --description "Streamlit dashboard" --force
+gh label create notebooks -R "$REPO" --color "fef2c0" --description "Jupyter notebooks and interactive walkthroughs" --force
 gh label create testing -R "$REPO" --color "d4c5f9" --description "Tests and smoke coverage" --force
 gh label create docs -R "$REPO" --color "0075ca" --description "Documentation" --force
 gh label create devops -R "$REPO" --color "f9d0c4" --description "CI, Docker, tooling, and release workflows" --force
+gh label create community -R "$REPO" --color "cfd3d7" --description "Contributing, security, citation, and issue templates" --force
 gh label create portfolio -R "$REPO" --color "b60205" --description "Portfolio, resume, and launch polish" --force
 gh label create enhancement -R "$REPO" --color "a2eeef" --description "New feature or improvement" --force
 gh label create bug -R "$REPO" --color "d73a4a" --description "Bug or regression" --force
@@ -130,6 +130,20 @@ issue "Implement text generation with top-k, top-p, and temperature sampling" \
   "dork/generation/, scripts/generate_text.py, dork/serving/service.py" \
   "- sampler functions are unit-tested\n- CLI/API pass sampling controls through\n- trained model generates text locally"
 
+issue "Add KV-cache fast inference and speedup benchmark" \
+  "Milestone 2: Tiny GPT Training Pipeline" \
+  "model,inference,experiments,enhancement" \
+  "Implement incremental key/value caching for generation and compare it against the reference decode path." \
+  "dork/models/layers.py, dork/models/tiny_gpt.py, dork/generation/generator.py, scripts/benchmark_inference.py, dork/pipelines.py" \
+  "- cached greedy decoding matches reference output\n- benchmark reports KV-cache and reference latency\n- README/Makefile document the benchmark command"
+
+issue "Add supervised fine-tuning post-training path" \
+  "Milestone 2: Tiny GPT Training Pipeline" \
+  "training,post-training,model,enhancement" \
+  "Instruction-tune the base Tiny GPT with prompt formatting, response-only loss masking, and before/after response perplexity." \
+  "dork/training/sft.py, dork/data/instructions.py, scripts/finetune_sft.py, dork/pipelines.py, configs/train_tiny_gpt.yaml" \
+  "- make sft writes a separate SFT checkpoint\n- prompt tokens are masked from loss\n- tests show response loss decreases"
+
 issue "Add perplexity and generation-quality evaluation" \
   "Milestone 3: Evaluation Harness" \
   "evaluation,model,enhancement" \
@@ -207,6 +221,20 @@ issue "Add benchmark scripts for latency and throughput" \
   "scripts/benchmark_inference.py, dork/pipelines.py, Makefile" \
   "- make benchmark and make benchmark_inference work\n- output includes mean, p50, p95, and tokens/sec\n- command is documented"
 
+issue "Add reproducible scaling and ablation study" \
+  "Milestone 5: API, Dashboard, and Demo" \
+  "experiments,training,evaluation,enhancement" \
+  "Train several Tiny GPT sizes under one controlled setup, fit a simple params-vs-loss trend, and commit the public-facing plot." \
+  "scripts/scaling_study.py, docs/assets/scaling_study.png, reports/scaling_study.json, README.md" \
+  "- script writes JSON metrics and a plot\n- committed plot is regenerated from the script\n- docs state the study is educational-scale"
+
+issue "Add lightweight local and optional W&B experiment tracking" \
+  "Milestone 5: API, Dashboard, and Demo" \
+  "experiments,devops,training,enhancement" \
+  "Write local JSON metadata, scalar metrics, and summaries for train/SFT/eval/benchmark/scaling runs, with optional W&B mirroring." \
+  "dork/utils/tracking.py, dork/pipelines.py, scripts/scaling_study.py, configs/train_tiny_gpt.yaml, configs/eval_default.yaml" \
+  "- local runs write metadata.json, metrics.jsonl, and summary.json\n- W&B import is optional and opt-in\n- tests cover local tracking output"
+
 issue "Add unit tests and integration tests" \
   "Milestone 5: API, Dashboard, and Demo" \
   "testing,enhancement" \
@@ -228,6 +256,13 @@ issue "Write README with quickstart and examples" \
   "README.md" \
   "- quickstart runs locally\n- examples are honest\n- command list matches Makefile"
 
+issue "Create train, evaluate, and RAG demo notebooks" \
+  "Milestone 6: Documentation and Portfolio Polish" \
+  "notebooks,docs,portfolio,enhancement" \
+  "Provide three runnable Jupyter notebooks that demonstrate Tiny GPT training, evaluation, and cited RAG over sample docs." \
+  "notebooks/train.ipynb, notebooks/evaluate.ipynb, notebooks/rag_demo.ipynb, README.md" \
+  "- notebooks run from repo root or notebooks directory\n- demos use CPU/offline-friendly defaults\n- README links all three notebooks"
+
 issue "Generate resume bullets, LinkedIn post, and portfolio summary" \
   "Milestone 6: Documentation and Portfolio Polish" \
   "portfolio,docs" \
@@ -241,6 +276,13 @@ issue "Polish repo for public portfolio launch" \
   "Finalize ignored artifacts, validation checks, GitHub metadata, and launch instructions." \
   ".gitignore, README.md, docs/github_issues_plan.md" \
   "- no large generated artifacts are staged\n- validation commands pass\n- GitHub issue plan is ready to run"
+
+issue "Add repository community health files" \
+  "Milestone 6: Documentation and Portfolio Polish" \
+  "community,docs,devops" \
+  "Add contribution, security, citation, conduct, issue-template, and PR-template files appropriate for a public portfolio repository." \
+  "CONTRIBUTING.md, SECURITY.md, CITATION.cff, CODE_OF_CONDUCT.md, .github/ISSUE_TEMPLATE/, .github/PULL_REQUEST_TEMPLATE.md" \
+  "- GitHub community profile files are present\n- templates collect actionable reproduction context\n- docs explain security and data-handling boundaries"
 ```
 
 ## Current Completion Mapping

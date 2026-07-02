@@ -6,7 +6,7 @@ PY ?= python
 PIP ?= $(PY) -m pip
 PKG := dork
 
-# Config file defaults (override on the command line, e.g. `make train-small-gpt CONFIG=...`)
+# Config file defaults (override on the command line, e.g. `make train-small-gpt TRAIN_CONFIG=...`)
 TOKENIZER_CONFIG ?= configs/train_tiny_gpt.yaml
 TRAIN_CONFIG     ?= configs/train_tiny_gpt.yaml
 EVAL_CONFIG      ?= configs/eval_default.yaml
@@ -37,6 +37,10 @@ format: ## Auto-format with black + ruff --fix
 	black $(PKG) scripts apps tests
 	ruff check --fix $(PKG) scripts apps tests
 
+.PHONY: format-check
+format-check: ## Check formatting with black
+	black --check $(PKG) scripts apps tests
+
 .PHONY: typecheck
 typecheck: ## Static type check with mypy
 	mypy $(PKG)
@@ -50,7 +54,7 @@ test-fast: ## Run tests excluding slow ones
 	pytest -m "not slow"
 
 .PHONY: check
-check: lint typecheck test ## Run lint + typecheck + tests (CI parity)
+check: lint format-check typecheck test ## Run lint + format check + typecheck + tests (CI parity)
 
 # ──────────────────────── ML pipelines ───────────────────────────
 .PHONY: prepare-data
@@ -103,6 +107,10 @@ benchmark_inference: benchmark ## Alias for `make benchmark`
 .PHONY: scaling-study
 scaling-study: ## Run the reproducible scaling study (params vs. loss + plot)
 	$(PY) scripts/scaling_study.py
+
+.PHONY: experiments
+experiments: ## List local experiment tracking runs
+	$(PY) -m dork.utils.tracking --out-dir experiments
 
 .PHONY: smoke
 smoke: ## Run the end-to-end smoke test used by CI
