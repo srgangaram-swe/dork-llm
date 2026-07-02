@@ -64,3 +64,12 @@ generation:
   temperature: 0.8
   top_k: 50
   top_p: 0.95
+
+tracking:
+  # Local JSON tracking is dependency-free. Set wandb: true or DORK_WANDB=1
+  # after installing `.[tracking]` to mirror metrics to Weights & Biases.
+  enabled: true
+  out_dir: experiments
+  project: dork-llm
+  wandb: false
+  tags: ["tiny-gpt"]

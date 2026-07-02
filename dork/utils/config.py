@@ -96,6 +96,16 @@ class SFTConfig(_Base):
     min_lr: float = Field(1.0e-5, ge=0.0)
 
 
+class TrackingConfig(_Base):
+    """Local-first experiment tracking, with optional W&B mirroring."""
+
+    enabled: bool = True
+    out_dir: str = "experiments"
+    project: str = "dork-llm"
+    wandb: bool = False
+    tags: list[str] = Field(default_factory=list)
+
+
 class TinyGPTConfig(_Base):
     """Aggregate config for the full tiny-GPT pipeline."""
 
@@ -106,6 +116,7 @@ class TinyGPTConfig(_Base):
     training: TrainingConfig = Field(default_factory=TrainingConfig)
     generation: GenerationConfig = Field(default_factory=GenerationConfig)
     sft: SFTConfig = Field(default_factory=SFTConfig)
+    tracking: TrackingConfig = Field(default_factory=TrackingConfig)
 
     @model_validator(mode="after")
     def _sync_vocab(self) -> TinyGPTConfig:

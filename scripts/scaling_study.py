@@ -31,6 +31,7 @@ from dork.utils.io import save_json
 from dork.utils.logging import get_logger
 from dork.utils.paths import resolve_path
 from dork.utils.seed import seed_everything
+from dork.utils.tracking import start_tracker
 
 logger = get_logger(__name__)
 
@@ -41,9 +42,22 @@ def run_scaling_study(
     block_size: int = 128,
     seed: int = 1337,
     vocab_size: int = 1024,
+    tracking: dict | None = None,
 ) -> dict:
     """Train one model per ``n_embd`` in ``sizes`` and record params vs. val loss."""
     seed_everything(seed)
+    tracker = start_tracker(
+        tracking or {"enabled": True, "out_dir": "experiments", "project": "dork-llm"},
+        "scaling-study",
+        config={
+            "sizes": sizes,
+            "steps": steps,
+            "block_size": block_size,
+            "seed": seed,
+            "vocab_size": vocab_size,
+        },
+        tags=["scaling", "ablation"],
+    )
     data_cfg = DataConfig(dataset="tiny_shakespeare")
     text = prepare_corpus(data_cfg).read_text(encoding="utf-8")
     tok = load_or_train_tokenizer(
@@ -95,6 +109,8 @@ def run_scaling_study(
                 "minutes": round((time.time() - t0) / 60, 2),
             }
         )
+        if tracker is not None:
+            tracker.log_metrics(runs[-1], step=len(runs))
         logger.info("size n_embd=%d params=%d val_loss=%.4f", n_embd, params, val)
 
     # Fit a power law: val_loss ~= a * params^b (line in log-log space).
@@ -109,6 +125,15 @@ def run_scaling_study(
     }
     save_json("reports/scaling_study.json", result)
     _plot(runs, exponent, "docs/assets/scaling_study.png")
+    if tracker is not None:
+        result["tracking_run_dir"] = str(tracker.run_dir)
+        tracker.finish(
+            {
+                "n_runs": len(runs),
+                "exponent_b": exponent,
+                "best_val_loss": min(r["val_loss"] for r in runs),
+            }
+        )
     return result
 
 
@@ -161,8 +186,21 @@ def main() -> None:
     ap.add_argument("--sizes", type=int, nargs="+", default=[64, 128, 192, 256])
     ap.add_argument("--steps", type=int, default=250)
     ap.add_argument("--block-size", type=int, default=128)
+    ap.add_argument("--tracking-out-dir", default="experiments")
+    ap.add_argument("--wandb", action="store_true", help="Mirror metrics to Weights & Biases.")
+    ap.add_argument("--no-tracking", action="store_true", help="Disable local experiment tracking.")
     args = ap.parse_args()
-    result = run_scaling_study(args.sizes, steps=args.steps, block_size=args.block_size)
+    result = run_scaling_study(
+        args.sizes,
+        steps=args.steps,
+        block_size=args.block_size,
+        tracking={
+            "enabled": not args.no_tracking,
+            "out_dir": args.tracking_out_dir,
+            "project": "dork-llm",
+            "wandb": args.wandb,
+        },
+    )
     print(json.dumps({"runs": result["runs"], "power_law": result["power_law"]}, indent=2))
 
 

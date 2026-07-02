@@ -18,8 +18,21 @@ from dork.utils.config import (
 )
 from dork.utils.logging import get_logger
 from dork.utils.seed import seed_everything
+from dork.utils.tracking import start_tracker
 
 logger = get_logger(__name__)
+
+
+def _eval_summary_metrics(report: dict[str, Any]) -> dict[str, float]:
+    """Flatten eval summary rows into ``suite.metric -> value`` scalars."""
+    metrics: dict[str, float] = {}
+    for row in report.get("summary", []):
+        suite = row.get("suite")
+        metric = row.get("metric")
+        value = row.get("value")
+        if suite and metric and isinstance(value, (int, float)):
+            metrics[f"{suite}.{metric}"] = float(value)
+    return metrics
 
 
 # ───────────────────────── Tiny GPT pipeline ─────────────────────────
@@ -71,16 +84,28 @@ def train_model(config_path: str) -> dict[str, Any]:
     val_ds = BinTokenDataset(str(meta["val_bin"]), cfg.model.block_size)
 
     model = TinyGPT(cfg.model)
-    trainer = Trainer(model, train_ds, val_ds, cfg.training, tokenizer_path=cfg.tokenizer.path)
+    tracker = start_tracker(cfg.tracking, "train-tiny-gpt", config=cfg, tags=["train"])
+    trainer = Trainer(
+        model,
+        train_ds,
+        val_ds,
+        cfg.training,
+        tokenizer_path=cfg.tokenizer.path,
+        tracker=tracker,
+    )
     history = trainer.train()
     best_val = min((h["val"] for h in history), default=float("nan"))
-    return {
+    result = {
         "params": model.num_params(),
         "best_val_loss": best_val,
         "steps": cfg.training.max_steps,
         "out_dir": cfg.training.out_dir,
         "device": trainer.device,
     }
+    if tracker is not None:
+        result["tracking_run_dir"] = str(tracker.run_dir)
+        tracker.finish(result)
+    return result
 
 
 def generate(config_path: str, prompt: str, **overrides: Any) -> str:
@@ -143,7 +168,7 @@ def benchmark(config_path: str, n_requests: int = 20) -> dict[str, Any]:
 
     kv = _summary(_time(use_cache=True))
     ref = _summary(_time(use_cache=False))
-    return {
+    result = {
         "device": device,
         "params": model.num_params(),
         "n_requests": n_requests,
@@ -155,6 +180,19 @@ def benchmark(config_path: str, n_requests: int = 20) -> dict[str, Any]:
         "mean_ms": kv["mean_ms"],
         "tokens_per_sec": kv["tokens_per_sec"],
     }
+    tracker = start_tracker(cfg.tracking, "benchmark-inference", config=cfg, tags=["benchmark"])
+    if tracker is not None:
+        tracker.log_metrics(
+            {
+                "kv_mean_ms": kv["mean_ms"],
+                "reference_mean_ms": ref["mean_ms"],
+                "kv_tokens_per_sec": kv["tokens_per_sec"],
+                "speedup": result["speedup"],
+            }
+        )
+        result["tracking_run_dir"] = str(tracker.run_dir)
+        tracker.finish(result)
+    return result
 
 
 # ─────────────────────── Post-training (SFT) ─────────────────────────
@@ -206,13 +244,21 @@ def finetune_sft(config_path: str) -> dict[str, Any]:
         device=cfg.training.device,
         dtype="float32",
     )
-    trainer = SFTTrainer(model, train_xy, val_xy, train_cfg, tokenizer_path=cfg.tokenizer.path)
+    tracker = start_tracker(cfg.tracking, "sft-instruction-tune", config=cfg, tags=["sft"])
+    trainer = SFTTrainer(
+        model,
+        train_xy,
+        val_xy,
+        train_cfg,
+        tokenizer_path=cfg.tokenizer.path,
+        tracker=tracker,
+    )
     before = trainer._eval_response_loss(val_xy)
     history = trainer.train()
     after = min((h["val"] for h in history), default=before)
     import math
 
-    return {
+    result = {
         "base_source": base_source,
         "out_dir": sft.out_dir,
         "n_train": len(train_pairs),
@@ -223,6 +269,10 @@ def finetune_sft(config_path: str) -> dict[str, Any]:
         "val_ppl_after": math.exp(min(after, 20)),
         "steps": sft.max_steps,
     }
+    if tracker is not None:
+        result["tracking_run_dir"] = str(tracker.run_dir)
+        tracker.finish(result)
+    return result
 
 
 # ───────────────────────── Evaluation pipeline ───────────────────────
@@ -231,7 +281,26 @@ def run_eval(config_path: str) -> dict[str, Any]:
     from dork.evaluation.harness import EvalHarness
 
     cfg = load_eval_config(config_path)
-    return EvalHarness(cfg).run()
+    report = EvalHarness(cfg).run()
+    tracker = start_tracker(
+        getattr(cfg, "tracking", {"enabled": False}),
+        "eval-harness",
+        config=cfg,
+        tags=["eval"],
+    )
+    if tracker is not None:
+        metrics = _eval_summary_metrics(report)
+        if metrics:
+            tracker.log_metrics(metrics)
+        gate = report.get("gate", {})
+        result = {
+            "gate_passed": bool(gate.get("passed", True)),
+            "n_suites": len(report.get("summary", [])),
+            "out_dir": (cfg.report or {}).get("out_dir", "reports"),
+        }
+        report["tracking_run_dir"] = str(tracker.run_dir)
+        tracker.finish(result)
+    return report
 
 
 # ─────────────────────────── RAG pipeline ────────────────────────────

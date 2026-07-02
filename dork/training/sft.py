@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from typing import Any
 
 import torch
 
@@ -90,6 +91,7 @@ class SFTTrainer:
     val_xy: tuple[torch.Tensor, torch.Tensor]
     cfg: TrainingConfig
     tokenizer_path: str | None = None
+    tracker: Any | None = None
     history: list[dict[str, float]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -139,15 +141,16 @@ class SFTTrainer:
             if step % cfg.eval_interval == 0 or step == cfg.max_steps:
                 train_loss = self._eval_response_loss(self.train_xy)
                 val_loss = self._eval_response_loss(self.val_xy)
-                self.history.append(
-                    {
-                        "step": step,
-                        "train": train_loss,
-                        "val": val_loss,
-                        "val_ppl": math.exp(min(val_loss, 20)),
-                        "lr": lr,
-                    }
-                )
+                metrics = {
+                    "step": step,
+                    "train": train_loss,
+                    "val": val_loss,
+                    "val_ppl": math.exp(min(val_loss, 20)),
+                    "lr": lr,
+                }
+                self.history.append(metrics)
+                if self.tracker is not None:
+                    self.tracker.log_metrics(metrics, step=step)
                 logger.info(
                     "sft step %d | train %.4f | val %.4f | ppl %.2f",
                     step,

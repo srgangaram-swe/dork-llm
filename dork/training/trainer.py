@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import torch
 
@@ -57,6 +58,7 @@ class Trainer:
     val_ds: BinTokenDataset
     cfg: TrainingConfig
     tokenizer_path: str | None = None
+    tracker: Any | None = None
     history: list[dict[str, float]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -129,6 +131,8 @@ class Trainer:
                 metrics = self.estimate_loss()
                 metrics.update({"step": step, "lr": lr})
                 self.history.append(metrics)
+                if self.tracker is not None:
+                    self.tracker.log_metrics(metrics, step=step)
                 logger.info(
                     "step %d | train %.4f | val %.4f | lr %.2e",
                     step,
