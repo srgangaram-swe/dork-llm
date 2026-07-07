@@ -18,8 +18,21 @@ from dork.utils.config import (
 )
 from dork.utils.logging import get_logger
 from dork.utils.seed import seed_everything
+from dork.utils.tracking import start_tracker
 
 logger = get_logger(__name__)
+
+
+def _eval_summary_metrics(report: dict[str, Any]) -> dict[str, float]:
+    """Flatten eval summary rows into ``suite.metric -> value`` scalars."""
+    metrics: dict[str, float] = {}
+    for row in report.get("summary", []):
+        suite = row.get("suite")
+        metric = row.get("metric")
+        value = row.get("value")
+        if suite and metric and isinstance(value, (int, float)):
+            metrics[f"{suite}.{metric}"] = float(value)
+    return metrics
 
 
 # ───────────────────────── Tiny GPT pipeline ─────────────────────────
@@ -71,16 +84,28 @@ def train_model(config_path: str) -> dict[str, Any]:
     val_ds = BinTokenDataset(str(meta["val_bin"]), cfg.model.block_size)
 
     model = TinyGPT(cfg.model)
-    trainer = Trainer(model, train_ds, val_ds, cfg.training, tokenizer_path=cfg.tokenizer.path)
+    tracker = start_tracker(cfg.tracking, "train-tiny-gpt", config=cfg, tags=["train"])
+    trainer = Trainer(
+        model,
+        train_ds,
+        val_ds,
+        cfg.training,
+        tokenizer_path=cfg.tokenizer.path,
+        tracker=tracker,
+    )
     history = trainer.train()
     best_val = min((h["val"] for h in history), default=float("nan"))
-    return {
+    result = {
         "params": model.num_params(),
         "best_val_loss": best_val,
         "steps": cfg.training.max_steps,
         "out_dir": cfg.training.out_dir,
         "device": trainer.device,
     }
+    if tracker is not None:
+        result["tracking_run_dir"] = str(tracker.run_dir)
+        tracker.finish(result)
+    return result
 
 
 def generate(config_path: str, prompt: str, **overrides: Any) -> str:
@@ -102,11 +127,14 @@ def generate(config_path: str, prompt: str, **overrides: Any) -> str:
 
 
 def benchmark(config_path: str, n_requests: int = 20) -> dict[str, Any]:
-    """Benchmark generation latency/throughput for the trained model."""
+    """Benchmark generation latency/throughput and the KV-cache speedup.
+
+    Times the same decode both with the KV cache and with the O(T²) reference
+    path so the report quantifies the inference optimization, not just raw speed.
+    """
     import time
 
     cfg = load_tiny_gpt_config(config_path)
-    text = generate  # noqa: F841 (keep import graph warm)
     from dork.generation.generator import Generator
     from dork.tokenizer.factory import load_tokenizer
     from dork.training.checkpoint import load_model_from_checkpoint
@@ -118,23 +146,133 @@ def benchmark(config_path: str, n_requests: int = 20) -> dict[str, Any]:
     gen = Generator(model, tokenizer, device=device)
 
     prompt = "Once upon a time"
-    latencies = []
     tokens = cfg.generation.max_new_tokens
-    for _ in range(n_requests):
-        t0 = time.perf_counter()
-        gen.generate(prompt, max_new_tokens=tokens, temperature=0.8)
-        latencies.append(time.perf_counter() - t0)
-    latencies.sort()
-    mean_s = sum(latencies) / len(latencies)
-    return {
+    gen.generate(prompt, max_new_tokens=8, temperature=0.8)  # warmup
+
+    def _time(use_cache: bool) -> list[float]:
+        lat = []
+        for _ in range(n_requests):
+            t0 = time.perf_counter()
+            gen.generate(prompt, max_new_tokens=tokens, temperature=0.8, use_cache=use_cache)
+            lat.append(time.perf_counter() - t0)
+        return sorted(lat)
+
+    def _summary(lat: list[float]) -> dict[str, float]:
+        mean_s = sum(lat) / len(lat)
+        return {
+            "mean_ms": mean_s * 1000,
+            "p50_ms": lat[len(lat) // 2] * 1000,
+            "p95_ms": lat[min(len(lat) - 1, int(0.95 * len(lat)))] * 1000,
+            "tokens_per_sec": tokens / mean_s if mean_s else float("inf"),
+        }
+
+    kv = _summary(_time(use_cache=True))
+    ref = _summary(_time(use_cache=False))
+    result = {
         "device": device,
+        "params": model.num_params(),
         "n_requests": n_requests,
         "new_tokens": tokens,
-        "mean_ms": mean_s * 1000,
-        "p50_ms": latencies[len(latencies) // 2] * 1000,
-        "p95_ms": latencies[min(len(latencies) - 1, int(0.95 * len(latencies)))] * 1000,
-        "tokens_per_sec": tokens / mean_s if mean_s else float("inf"),
+        "kv_cache": kv,
+        "reference": ref,
+        "speedup": ref["mean_ms"] / kv["mean_ms"] if kv["mean_ms"] else float("inf"),
+        # Flattened aliases for backwards-compatible dashboards.
+        "mean_ms": kv["mean_ms"],
+        "tokens_per_sec": kv["tokens_per_sec"],
     }
+    tracker = start_tracker(cfg.tracking, "benchmark-inference", config=cfg, tags=["benchmark"])
+    if tracker is not None:
+        tracker.log_metrics(
+            {
+                "kv_mean_ms": kv["mean_ms"],
+                "reference_mean_ms": ref["mean_ms"],
+                "kv_tokens_per_sec": kv["tokens_per_sec"],
+                "speedup": result["speedup"],
+            }
+        )
+        result["tracking_run_dir"] = str(tracker.run_dir)
+        tracker.finish(result)
+    return result
+
+
+# ─────────────────────── Post-training (SFT) ─────────────────────────
+def finetune_sft(config_path: str) -> dict[str, Any]:
+    """Instruction-tune the base tiny GPT on synthetic instruction data.
+
+    Loads the pretrained checkpoint (if present; otherwise fine-tunes a fresh
+    model so the path is always runnable), builds a masked instruction dataset,
+    fine-tunes, and reports before/after held-out response perplexity.
+    """
+    cfg = load_tiny_gpt_config(config_path)
+    seed_everything(cfg.seed)
+
+    from dork.data.datasets import prepare_corpus
+    from dork.data.instructions import split_instructions, synthetic_instructions
+    from dork.models.tiny_gpt import TinyGPT
+    from dork.tokenizer.factory import load_or_train_tokenizer
+    from dork.training.checkpoint import load_model_from_checkpoint
+    from dork.training.sft import SFTTrainer, build_sft_dataset
+    from dork.utils.config import TrainingConfig
+
+    sft = cfg.sft
+    text = prepare_corpus(cfg.data).read_text(encoding="utf-8")
+    tokenizer = load_or_train_tokenizer(cfg.tokenizer, text)
+
+    # Start from the pretrained base if it exists; otherwise a fresh model.
+    try:
+        model, _ = load_model_from_checkpoint(sft.base_out_dir, device="cpu")
+        base_source = sft.base_out_dir
+    except FileNotFoundError:
+        logger.warning("No base checkpoint at %s; fine-tuning a fresh model.", sft.base_out_dir)
+        cfg.model.vocab_size = tokenizer.vocab_size
+        model = TinyGPT(cfg.model)
+        base_source = "(fresh init)"
+
+    pairs = synthetic_instructions(n_arith=sft.n_arith, seed=cfg.seed)
+    train_pairs, val_pairs = split_instructions(pairs, sft.val_fraction, cfg.seed)
+    train_xy = build_sft_dataset(train_pairs, tokenizer, cfg.model.block_size)
+    val_xy = build_sft_dataset(val_pairs, tokenizer, cfg.model.block_size)
+
+    train_cfg = TrainingConfig(
+        batch_size=sft.batch_size,
+        max_steps=sft.max_steps,
+        eval_interval=sft.eval_interval,
+        warmup_steps=sft.warmup_steps,
+        learning_rate=sft.learning_rate,
+        min_lr=sft.min_lr,
+        out_dir=sft.out_dir,
+        device=cfg.training.device,
+        dtype="float32",
+    )
+    tracker = start_tracker(cfg.tracking, "sft-instruction-tune", config=cfg, tags=["sft"])
+    trainer = SFTTrainer(
+        model,
+        train_xy,
+        val_xy,
+        train_cfg,
+        tokenizer_path=cfg.tokenizer.path,
+        tracker=tracker,
+    )
+    before = trainer._eval_response_loss(val_xy)
+    history = trainer.train()
+    after = min((h["val"] for h in history), default=before)
+    import math
+
+    result = {
+        "base_source": base_source,
+        "out_dir": sft.out_dir,
+        "n_train": len(train_pairs),
+        "n_val": len(val_pairs),
+        "val_response_loss_before": before,
+        "val_response_loss_after": after,
+        "val_ppl_before": math.exp(min(before, 20)),
+        "val_ppl_after": math.exp(min(after, 20)),
+        "steps": sft.max_steps,
+    }
+    if tracker is not None:
+        result["tracking_run_dir"] = str(tracker.run_dir)
+        tracker.finish(result)
+    return result
 
 
 # ───────────────────────── Evaluation pipeline ───────────────────────
@@ -143,7 +281,26 @@ def run_eval(config_path: str) -> dict[str, Any]:
     from dork.evaluation.harness import EvalHarness
 
     cfg = load_eval_config(config_path)
-    return EvalHarness(cfg).run()
+    report = EvalHarness(cfg).run()
+    tracker = start_tracker(
+        getattr(cfg, "tracking", {"enabled": False}),
+        "eval-harness",
+        config=cfg,
+        tags=["eval"],
+    )
+    if tracker is not None:
+        metrics = _eval_summary_metrics(report)
+        if metrics:
+            tracker.log_metrics(metrics)
+        gate = report.get("gate", {})
+        result = {
+            "gate_passed": bool(gate.get("passed", True)),
+            "n_suites": len(report.get("summary", [])),
+            "out_dir": (cfg.report or {}).get("out_dir", "reports"),
+        }
+        report["tracking_run_dir"] = str(tracker.run_dir)
+        tracker.finish(result)
+    return report
 
 
 # ─────────────────────────── RAG pipeline ────────────────────────────

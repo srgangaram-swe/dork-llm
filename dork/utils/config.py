@@ -44,6 +44,9 @@ class ModelConfig(_Base):
     dropout: float = Field(0.1, ge=0.0, le=0.9)
     bias: bool = False
     pos_encoding: Literal["learned", "sinusoidal", "rope"] = "learned"
+    norm_type: Literal["layernorm", "rmsnorm"] = "layernorm"
+    mlp_type: Literal["gelu", "swiglu"] = "gelu"
+    stochastic_depth: float = Field(0.0, ge=0.0, lt=1.0)
 
     @model_validator(mode="after")
     def _check_divisible(self) -> ModelConfig:
@@ -81,6 +84,31 @@ class GenerationConfig(_Base):
     top_p: float | None = Field(0.95, ge=0.0, le=1.0)
 
 
+class SFTConfig(_Base):
+    """Supervised fine-tuning (post-training) settings."""
+
+    base_out_dir: str = "artifacts/tiny_gpt"  # checkpoint to fine-tune from
+    out_dir: str = "artifacts/tiny_gpt_sft"
+    n_arith: int = Field(48, ge=0)
+    val_fraction: float = Field(0.2, gt=0.0, lt=0.9)
+    batch_size: int = Field(16, ge=1)
+    max_steps: int = Field(300, ge=1)
+    eval_interval: int = Field(50, ge=1)
+    learning_rate: float = Field(1.0e-4, gt=0.0)
+    warmup_steps: int = Field(20, ge=0)
+    min_lr: float = Field(1.0e-5, ge=0.0)
+
+
+class TrackingConfig(_Base):
+    """Local-first experiment tracking, with optional W&B mirroring."""
+
+    enabled: bool = True
+    out_dir: str = "experiments"
+    project: str = "dork-llm"
+    wandb: bool = False
+    tags: list[str] = Field(default_factory=list)
+
+
 class TinyGPTConfig(_Base):
     """Aggregate config for the full tiny-GPT pipeline."""
 
@@ -90,6 +118,8 @@ class TinyGPTConfig(_Base):
     model: ModelConfig = Field(default_factory=ModelConfig)
     training: TrainingConfig = Field(default_factory=TrainingConfig)
     generation: GenerationConfig = Field(default_factory=GenerationConfig)
+    sft: SFTConfig = Field(default_factory=SFTConfig)
+    tracking: TrackingConfig = Field(default_factory=TrackingConfig)
 
     @model_validator(mode="after")
     def _sync_vocab(self) -> TinyGPTConfig:

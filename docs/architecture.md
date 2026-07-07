@@ -23,10 +23,10 @@ fit together and the design decisions behind them.
 
 | Package | Responsibility |
 |---|---|
-| `dork.utils` | Config (pydantic), logging, seeding, paths, I/O. No ML deps. |
+| `dork.utils` | Config (pydantic), logging, seeding, paths, I/O, local experiment tracking. No ML deps. |
 | `dork.data` | Corpus preparation (offline fallback) and memory-mapped token batching. |
 | `dork.tokenizer` | `Tokenizer` interface; char + byte-level BPE backends; factory. |
-| `dork.models` | `TinyGPT` and its transformer blocks (attention, MLP, norms, RoPE). |
+| `dork.models` | `TinyGPT` and its transformer blocks (attention, GELU/SwiGLU MLPs, LayerNorm/RMSNorm, RoPE). |
 | `dork.training` | Trainer loop, cosine LR schedule, checkpointing. |
 | `dork.generation` | Sampling primitives, `Generator`, and `LanguageModel` providers. |
 | `dork.evaluation` | Evaluator ABC + registry, suites, reporting, harness. |
@@ -36,6 +36,18 @@ fit together and the design decisions behind them.
 | `dork.pipelines` | High-level orchestration shared by CLI, scripts, and service. |
 
 ## Key design decisions
+
+### 0. Small-model track with modern architecture switches
+The default config remains intentionally tiny for laptop demos, but the model
+code now supports a stronger training track inspired by modern decoder LLMs:
+RoPE positional encoding, RMSNorm, SwiGLU feed-forward blocks, and per-layer
+stochastic depth. These are exposed through typed config fields, so experiments
+can compare baseline GPT-2-style blocks against the stronger profile without
+forking model code.
+
+`configs/dorkllm_frontier.yaml` is the canonical "make it actually better"
+profile: TinyStories-oriented data, larger BPE vocabulary, longer context,
+8-layer/512-width transformer, gradient accumulation, and separate SFT artifacts.
 
 ### 1. Local-first with graceful fallbacks
 Every subsystem has a zero-dependency path so the platform runs and self-tests
@@ -51,10 +63,11 @@ offline, then upgrades transparently:
 This makes CI fast and hermetic, lets reviewers run everything without a GPU, and
 keeps the abstractions honest (each interface has ≥2 implementations).
 
-### 2. One orchestration layer, three front-ends
+### 2. One orchestration layer, four front-ends
 `dork.pipelines` holds the workflow logic. The Typer CLI (`dork`), the `scripts/`
-entry points (what the Makefile calls), and the `DorkService` behind the API all
-call the same functions — no duplicated logic, identical behavior everywhere.
+entry points (what the Makefile calls), the `DorkService` behind the API, and the
+static Matrix chat web app all call the same serving/generation/RAG paths — no
+duplicated logic, identical behavior everywhere.
 
 ### 3. Typed configs, validated at the edge
 Training configs are fully typed pydantic models (`TinyGPTConfig`); a malformed
@@ -70,6 +83,11 @@ API stays convenient without forcing a 2 GB dependency on every user.
 RAG chunks carry their source path and character offsets, so every citation points
 back to an exact span. Checkpoints embed the model config and tokenizer path, so a
 model is self-describing and reproducible.
+
+### 6. Local-first experiment tracking
+Training, SFT, evaluation, benchmarking, and scaling runs write JSON metadata,
+metrics, and summaries under `experiments/`. W&B mirroring is optional and only
+used when explicitly enabled, so CI and offline demos stay dependency-light.
 
 ## Request lifecycle (RAG query example)
 

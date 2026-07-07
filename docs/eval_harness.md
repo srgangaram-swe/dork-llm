@@ -24,6 +24,8 @@ Outputs are written to `reports/` by default:
 - `eval_summary.csv`: flat summary table.
 - `eval_report.md`: human-facing report.
 - `eval_metrics.png`: optional plot when matplotlib is installed.
+- `experiments/<run>/`: local tracking metadata and scalar metric history when
+  `tracking.enabled` is true.
 
 `reports/` is ignored by git. A representative checked-in example lives at
 `docs/example_eval_report.md`.
@@ -83,3 +85,5 @@ report:
   tests, not a replacement for human review or stronger entailment models.
 - Latency numbers for the mock provider are not representative of real model
   serving. Use `local_gpt` or `hf` for meaningful performance work.
+- The same summary metrics can be mirrored to W&B by setting
+  `tracking.wandb: true` after installing the optional `.[tracking]` extra.

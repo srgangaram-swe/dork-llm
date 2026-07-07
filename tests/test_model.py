@@ -7,6 +7,7 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from dork.generation.sampling import apply_top_k, apply_top_p, sample_next_token  # noqa: E402
+from dork.models.layers import RMSNorm, SwiGLU  # noqa: E402
 from dork.models.tiny_gpt import TinyGPT  # noqa: E402
 
 pytestmark = pytest.mark.torch
@@ -58,6 +59,63 @@ def test_positional_variants_forward(pos):
     x = torch.randint(0, 64, (1, 16))
     logits, _ = model(x)
     assert logits.shape[-1] == 64
+
+
+def test_frontier_architecture_variants_forward_and_cache():
+    from dork.utils.config import ModelConfig
+
+    torch.manual_seed(0)
+    cfg = ModelConfig(
+        vocab_size=128,
+        block_size=48,
+        n_layer=3,
+        n_head=4,
+        n_embd=64,
+        dropout=0.0,
+        pos_encoding="rope",
+        norm_type="rmsnorm",
+        mlp_type="swiglu",
+        stochastic_depth=0.1,
+    )
+    model = TinyGPT(cfg)
+    assert any(isinstance(m, RMSNorm) for m in model.modules())
+    assert any(isinstance(m, SwiGLU) for m in model.modules())
+
+    x = torch.randint(0, cfg.vocab_size, (2, 12))
+    logits, loss = model(x, x)
+    assert logits.shape == (2, 12, cfg.vocab_size)
+    assert loss is not None and loss.ndim == 0
+
+    model.eval()
+    ref = model.generate(x[:1, :6], max_new_tokens=12, temperature=0.0, use_cache=False)
+    cached = model.generate(x[:1, :6], max_new_tokens=12, temperature=0.0, use_cache=True)
+    assert torch.equal(ref, cached)
+
+
+@pytest.mark.parametrize("pos", ["learned", "sinusoidal", "rope"])
+def test_kv_cache_matches_reference(pos):
+    """Greedy decoding must be numerically identical with and without the KV cache."""
+    from dork.utils.config import ModelConfig
+
+    torch.manual_seed(0)
+    cfg = ModelConfig(
+        vocab_size=96, block_size=64, n_layer=3, n_head=4, n_embd=64, dropout=0.0, pos_encoding=pos
+    )
+    model = TinyGPT(cfg)
+    model.eval()
+    idx = torch.randint(0, 96, (1, 8))
+    ref = model.generate(idx, max_new_tokens=24, temperature=0.0, use_cache=False)
+    cached = model.generate(idx, max_new_tokens=24, temperature=0.0, use_cache=True)
+    assert torch.equal(ref, cached)
+
+
+def test_kv_cache_crosses_context_window(tiny_model_config):
+    """Generating beyond block_size must not crash (cache is re-prefilled)."""
+    model = TinyGPT(tiny_model_config)
+    model.eval()
+    idx = torch.zeros((1, 4), dtype=torch.long)
+    out = model.generate(idx, max_new_tokens=tiny_model_config.block_size * 2, temperature=0.0)
+    assert out.shape[1] == 4 + tiny_model_config.block_size * 2
 
 
 def test_greedy_sampling_is_argmax():

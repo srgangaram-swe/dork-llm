@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -25,6 +25,30 @@ class GenerateRequest(BaseModel):
 class GenerateResponse(BaseModel):
     prompt: str
     completion: str
+    model: str
+    latency_ms: float
+
+
+class ChatMessage(BaseModel):
+    role: Literal["system", "user", "assistant"] = "user"
+    content: str = Field(..., min_length=1)
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, examples=["What makes dorkLLM different?"])
+    mode: Literal["auto", "rag", "generate"] = "auto"
+    history: list[ChatMessage] = Field(default_factory=list)
+    retrieval_top_k: int = Field(5, ge=1, le=20)
+    max_new_tokens: int = Field(256, ge=1, le=2048)
+    temperature: float = Field(0.7, ge=0.0, le=2.0)
+    sampling_top_k: int | None = Field(50, ge=0)
+    top_p: float | None = Field(0.95, ge=0.0, le=1.0)
+
+
+class ChatResponse(BaseModel):
+    answer: str
+    mode: Literal["rag", "generate"]
+    citations: list[dict[str, Any]] = Field(default_factory=list)
     model: str
     latency_ms: float
 

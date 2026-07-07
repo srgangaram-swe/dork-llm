@@ -64,6 +64,7 @@ reports/
 !docs/assets/*.png
 
 # Experiment tracking
+experiments/
 wandb/
 mlruns/
 

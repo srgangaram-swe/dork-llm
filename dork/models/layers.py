@@ -28,6 +28,19 @@ class LayerNorm(nn.Module):
         return F.layer_norm(x, self.weight.shape, self.weight, self.bias, eps=1e-5)
 
 
+class RMSNorm(nn.Module):
+    """Root-mean-square normalization used by many modern decoder LLMs."""
+
+    def __init__(self, ndim: int, eps: float = 1e-6) -> None:
+        super().__init__()
+        self.weight = nn.Parameter(torch.ones(ndim))
+        self.eps = eps
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        rms = torch.rsqrt(x.pow(2).mean(dim=-1, keepdim=True) + self.eps)
+        return self.weight * x * rms
+
+
 def sinusoidal_position_embedding(block_size: int, n_embd: int) -> torch.Tensor:
     """Return the classic (Vaswani et al.) fixed sinusoidal position table."""
     position = torch.arange(block_size).unsqueeze(1)
@@ -50,8 +63,10 @@ class RotaryEmbedding(nn.Module):
         inv_freq = 1.0 / (base ** (torch.arange(0, head_dim, 2).float() / head_dim))
         self.register_buffer("inv_freq", inv_freq, persistent=False)
 
-    def _cos_sin(self, seq_len: int, device: torch.device, dtype: torch.dtype):
-        t = torch.arange(seq_len, device=device, dtype=torch.float32)
+    def _cos_sin(self, seq_len: int, offset: int, device: torch.device, dtype: torch.dtype):
+        # ``offset`` shifts positions so incremental (KV-cached) decoding rotates
+        # each new token by its *absolute* position, not its position in the step.
+        t = torch.arange(offset, offset + seq_len, device=device, dtype=torch.float32)
         freqs = torch.outer(t, self.inv_freq)  # (T, head_dim/2)
         emb = torch.cat((freqs, freqs), dim=-1)  # (T, head_dim)
         return emb.cos().to(dtype), emb.sin().to(dtype)
@@ -61,20 +76,29 @@ class RotaryEmbedding(nn.Module):
         x1, x2 = x.chunk(2, dim=-1)
         return torch.cat((-x2, x1), dim=-1)
 
-    def forward(self, q: torch.Tensor, k: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self, q: torch.Tensor, k: torch.Tensor, offset: int = 0
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         # q, k: (B, n_head, T, head_dim)
         seq_len = q.shape[-2]
-        cos, sin = self._cos_sin(seq_len, q.device, q.dtype)
+        cos, sin = self._cos_sin(seq_len, offset, q.device, q.dtype)
         cos, sin = cos[None, None, :, :], sin[None, None, :, :]
         q_rot = (q * cos) + (self._rotate_half(q) * sin)
         k_rot = (k * cos) + (self._rotate_half(k) * sin)
         return q_rot, k_rot
 
 
-class CausalSelfAttention(nn.Module):
-    """Multi-head masked self-attention with a single fused QKV projection."""
+#: A per-layer key/value cache entry, each shaped ``(B, n_head, T_kv, head_dim)``.
+KVCache = tuple[torch.Tensor, torch.Tensor]
 
-    causal_mask: torch.Tensor  # registered buffer on the non-flash fallback path
+
+class CausalSelfAttention(nn.Module):
+    """Multi-head masked self-attention with a single fused QKV projection.
+
+    Supports incremental decoding via an optional key/value cache: pass the
+    previous step's ``layer_past`` and set ``use_cache=True`` to reuse already-
+    computed keys/values instead of recomputing attention over the whole prefix.
+    """
 
     def __init__(
         self,
@@ -101,12 +125,13 @@ class CausalSelfAttention(nn.Module):
 
         self.rope = RotaryEmbedding(self.head_dim) if use_rope else None
         self._flash = hasattr(F, "scaled_dot_product_attention")
-        if not self._flash:
-            # Lower-triangular causal mask for the fallback path.
-            mask = torch.tril(torch.ones(block_size, block_size)).view(1, 1, block_size, block_size)
-            self.register_buffer("causal_mask", mask, persistent=False)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+        layer_past: KVCache | None = None,
+        use_cache: bool = False,
+    ) -> tuple[torch.Tensor, KVCache | None]:
         B, T, C = x.shape
         q, k, v = self.c_attn(x).split(self.n_embd, dim=2)
         # (B, n_head, T, head_dim)
@@ -114,8 +139,21 @@ class CausalSelfAttention(nn.Module):
         k = k.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
         v = v.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
 
+        # Number of already-cached positions (0 during prefill / training).
+        offset = layer_past[0].shape[-2] if layer_past is not None else 0
         if self.rope is not None:
-            q, k = self.rope(q, k)
+            q, k = self.rope(q, k, offset=offset)
+
+        # Prepend the cached keys/values so this step attends to the full prefix.
+        if layer_past is not None:
+            past_k, past_v = layer_past
+            k = torch.cat((past_k, k), dim=2)
+            v = torch.cat((past_v, v), dim=2)
+        present: KVCache | None = (k, v) if use_cache else None
+
+        # A multi-token block (prefill/training) needs a causal mask; a single
+        # cached decode step attends to everything already in the cache.
+        is_causal = T > 1
 
         if self._flash:
             y = F.scaled_dot_product_attention(
@@ -124,17 +162,22 @@ class CausalSelfAttention(nn.Module):
                 v,
                 attn_mask=None,
                 dropout_p=self.dropout if self.training else 0.0,
-                is_causal=True,
+                is_causal=is_causal,
             )
         else:  # pragma: no cover - exercised only on old torch
+            t_k = k.shape[-2]
             att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(self.head_dim))
-            att = att.masked_fill(self.causal_mask[:, :, :T, :T] == 0, float("-inf"))
+            if is_causal:
+                # Query i (absolute pos offset+i) may attend to key j iff j <= offset+i.
+                q_pos = torch.arange(offset, offset + T, device=x.device).view(T, 1)
+                k_pos = torch.arange(t_k, device=x.device).view(1, t_k)
+                att = att.masked_fill(k_pos > q_pos, float("-inf"))
             att = F.softmax(att, dim=-1)
             att = self.attn_dropout(att)
             y = att @ v
 
         y = y.transpose(1, 2).contiguous().view(B, T, C)
-        return self.resid_dropout(self.c_proj(y))
+        return self.resid_dropout(self.c_proj(y)), present
 
 
 class MLP(nn.Module):
@@ -151,6 +194,43 @@ class MLP(nn.Module):
         return self.dropout(self.c_proj(self.gelu(self.c_fc(x))))
 
 
+class SwiGLU(nn.Module):
+    """Gated feedforward network with SwiGLU activation.
+
+    The hidden width follows the common 8/3 expansion used to keep parameter
+    count near a 4x GELU MLP while adding a learned gate.
+    """
+
+    def __init__(self, n_embd: int, dropout: float = 0.0, bias: bool = False) -> None:
+        super().__init__()
+        hidden_dim = max(8, int(8 * n_embd / 3))
+        self.c_fc = nn.Linear(n_embd, 2 * hidden_dim, bias=bias)
+        self.c_proj = nn.Linear(hidden_dim, n_embd, bias=bias)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        value, gate = self.c_fc(x).chunk(2, dim=-1)
+        return self.dropout(self.c_proj(value * F.silu(gate)))
+
+
+class StochasticDepth(nn.Module):
+    """Drop whole residual branches during training, scaled to preserve expectation."""
+
+    def __init__(self, p: float = 0.0) -> None:
+        super().__init__()
+        if not 0.0 <= p < 1.0:
+            raise ValueError("stochastic depth probability must be in [0, 1).")
+        self.p = p
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.p == 0.0 or not self.training:
+            return x
+        keep_prob = 1.0 - self.p
+        shape = (x.shape[0],) + (1,) * (x.ndim - 1)
+        mask = x.new_empty(shape).bernoulli_(keep_prob)
+        return x.div(keep_prob) * mask
+
+
 class Block(nn.Module):
     """A pre-norm transformer block: ``x + attn(ln1(x))`` then ``x + mlp(ln2(x))``."""
 
@@ -162,14 +242,40 @@ class Block(nn.Module):
         dropout: float = 0.0,
         bias: bool = False,
         use_rope: bool = False,
+        norm_type: str = "layernorm",
+        mlp_type: str = "gelu",
+        stochastic_depth: float = 0.0,
     ) -> None:
         super().__init__()
-        self.ln_1 = LayerNorm(n_embd, bias=bias)
-        self.attn = CausalSelfAttention(n_embd, n_head, block_size, dropout, bias, use_rope)
-        self.ln_2 = LayerNorm(n_embd, bias=bias)
-        self.mlp = MLP(n_embd, dropout, bias)
+        self.ln_1: nn.Module
+        self.ln_2: nn.Module
+        self.mlp: nn.Module
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x + self.attn(self.ln_1(x))
-        x = x + self.mlp(self.ln_2(x))
-        return x
+        if norm_type == "layernorm":
+            self.ln_1 = LayerNorm(n_embd, bias=bias)
+            self.ln_2 = LayerNorm(n_embd, bias=bias)
+        elif norm_type == "rmsnorm":
+            self.ln_1 = RMSNorm(n_embd)
+            self.ln_2 = RMSNorm(n_embd)
+        else:
+            raise ValueError(f"Unknown norm_type: {norm_type}")
+
+        self.attn = CausalSelfAttention(n_embd, n_head, block_size, dropout, bias, use_rope)
+        if mlp_type == "gelu":
+            self.mlp = MLP(n_embd, dropout, bias)
+        elif mlp_type == "swiglu":
+            self.mlp = SwiGLU(n_embd, dropout, bias)
+        else:
+            raise ValueError(f"Unknown mlp_type: {mlp_type}")
+        self.drop_path = StochasticDepth(stochastic_depth)
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        layer_past: KVCache | None = None,
+        use_cache: bool = False,
+    ) -> tuple[torch.Tensor, KVCache | None]:
+        attn_out, present = self.attn(self.ln_1(x), layer_past=layer_past, use_cache=use_cache)
+        x = x + self.drop_path(attn_out)
+        x = x + self.drop_path(self.mlp(self.ln_2(x)))
+        return x, present

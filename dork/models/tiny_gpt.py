@@ -17,7 +17,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from dork.models.layers import Block, LayerNorm, sinusoidal_position_embedding
+from dork.models.layers import Block, KVCache, LayerNorm, RMSNorm, sinusoidal_position_embedding
 from dork.utils.config import ModelConfig
 from dork.utils.logging import get_logger
 
@@ -43,6 +43,7 @@ class TinyGPT(nn.Module):
 
         self.token_emb = nn.Embedding(config.vocab_size, config.n_embd)
         self.drop = nn.Dropout(config.dropout)
+        drop_path_rates = torch.linspace(0.0, config.stochastic_depth, config.n_layer).tolist()
         self.blocks = nn.ModuleList(
             [
                 Block(
@@ -52,11 +53,18 @@ class TinyGPT(nn.Module):
                     config.dropout,
                     config.bias,
                     use_rope=self.use_rope,
+                    norm_type=config.norm_type,
+                    mlp_type=config.mlp_type,
+                    stochastic_depth=float(drop_path_rates[i]),
                 )
-                for _ in range(config.n_layer)
+                for i in range(config.n_layer)
             ]
         )
-        self.ln_f = LayerNorm(config.n_embd, bias=config.bias)
+        self.ln_f = (
+            RMSNorm(config.n_embd)
+            if config.norm_type == "rmsnorm"
+            else LayerNorm(config.n_embd, bias=config.bias)
+        )
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 
         # Positional information.
@@ -126,7 +134,7 @@ class TinyGPT(nn.Module):
         x = self.drop(x)
 
         for block in self.blocks:
-            x = block(x)
+            x, _ = block(x)
         x = self.ln_f(x)
 
         if targets is not None:
@@ -175,6 +183,49 @@ class TinyGPT(nn.Module):
         )
         return opt
 
+    # ── Cached forward (incremental decoding) ─────────────────────────
+    def forward_with_cache(
+        self,
+        idx: torch.Tensor,
+        past: list[KVCache] | None = None,
+    ) -> tuple[torch.Tensor, list[KVCache]]:
+        """Forward a (possibly single-token) chunk using a per-layer KV cache.
+
+        Args:
+            idx: Token ids of shape ``(B, T)``. During cached decoding ``T`` is
+                typically 1 (the most recently sampled token).
+            past: The previous step's list of per-layer ``(k, v)`` caches, or
+                None on the first (prefill) call.
+
+        Returns:
+            ``(logits_last, present)`` where ``logits_last`` is ``(B, vocab)`` for
+            the final position and ``present`` is the updated per-layer cache.
+        """
+        _, T = idx.shape
+        past_len = past[0][0].shape[-2] if past is not None else 0
+        total = past_len + T
+        if total > self.config.block_size:
+            raise ValueError(
+                f"Cached sequence length {total} exceeds block_size {self.config.block_size}."
+            )
+
+        x = self.token_emb(idx)
+        if self.pos_emb is not None:  # learned: offset positions by the cache length
+            pos = torch.arange(past_len, past_len + T, device=idx.device)
+            x = x + self.pos_emb(pos)[None, :, :]
+        elif hasattr(self, "sinusoidal_pe"):
+            x = x + self.sinusoidal_pe[past_len : past_len + T][None, :, :].to(x.dtype)
+        x = self.drop(x)
+
+        present: list[KVCache] = []
+        for i, block in enumerate(self.blocks):
+            layer_past = past[i] if past is not None else None
+            x, layer_present = block(x, layer_past=layer_past, use_cache=True)
+            present.append(layer_present)  # type: ignore[arg-type]
+        x = self.ln_f(x)
+        logits = self.lm_head(x[:, -1, :])  # (B, vocab)
+        return logits, present
+
     # ── Generation ───────────────────────────────────────────────────
     @torch.no_grad()
     def generate(
@@ -184,21 +235,42 @@ class TinyGPT(nn.Module):
         temperature: float = 1.0,
         top_k: int | None = None,
         top_p: float | None = None,
+        use_cache: bool = True,
     ) -> torch.Tensor:
         """Autoregressively sample ``max_new_tokens`` continuations.
 
-        See :mod:`dork.generation.sampling` for the sampling primitives; this
-        method wires them into the decode loop with context-window cropping.
+        Two decode paths, numerically equivalent under greedy sampling:
+
+        * ``use_cache=True`` (default): O(T) per step via a KV cache — prefill the
+          prompt once, then feed only the newest token each step.
+        * ``use_cache=False``: the simple O(T²) reference path that re-runs the
+          full (cropped) context every step. Kept for clarity and as a test oracle.
+
+        See :mod:`dork.generation.sampling` for the sampling primitives.
         """
         from dork.generation.sampling import sample_next_token
 
         self.eval()
+        if not use_cache:
+            for _ in range(max_new_tokens):
+                idx_cond = idx[:, -self.config.block_size :]
+                logits, _ = self(idx_cond)
+                next_id = sample_next_token(logits[:, -1, :], temperature, top_k, top_p)
+                idx = torch.cat((idx, next_id), dim=1)
+            return idx
+
+        # Cached path: prefill on the (cropped) prompt, then step one token at a time.
+        idx_cond = idx[:, -self.config.block_size :]
+        logits, past = self.forward_with_cache(idx_cond)
         for _ in range(max_new_tokens):
-            idx_cond = idx[:, -self.config.block_size :]
-            logits, _ = self(idx_cond)
-            logits = logits[:, -1, :]
             next_id = sample_next_token(logits, temperature, top_k, top_p)
             idx = torch.cat((idx, next_id), dim=1)
+            # If the cache would exceed the context window, drop it and re-prefill
+            # on the cropped tail (rare for short generations; keeps correctness).
+            if past[0][0].shape[-2] >= self.config.block_size:
+                logits, past = self.forward_with_cache(idx[:, -self.config.block_size :])
+            else:
+                logits, past = self.forward_with_cache(next_id, past=past)
         return idx
 
     @classmethod

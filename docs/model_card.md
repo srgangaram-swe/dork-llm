@@ -1,26 +1,30 @@
-# Model Card: Dork Tiny GPT
+# Model Card: dorkLLM GPT
 
 ## Summary
 
-Dork Tiny GPT is a compact decoder-only transformer implemented from scratch in
-PyTorch. It is intentionally educational-scale: it demonstrates the core
-engineering patterns behind GPT-style language models without claiming frontier
-capability.
+dorkLLM GPT is a compact decoder-only transformer implemented from scratch in
+PyTorch. It now has two tracks: a tiny laptop-friendly baseline and a stronger
+small-model profile with modern decoder architecture choices. It is still not a
+frontier model, but it is no longer only a toy configuration.
 
 ## Architecture
 
 - Decoder-only transformer in the GPT-2 family.
 - Token embeddings plus configurable positional encoding: learned, sinusoidal,
   or RoPE.
-- Pre-norm transformer blocks.
+- Pre-norm transformer blocks with configurable LayerNorm or RMSNorm.
 - Multi-head causal self-attention with PyTorch scaled dot-product attention
   when available.
-- GELU MLP with 4x hidden expansion.
+- Incremental KV-cache decoding for fast inference, with a reference decode path
+  used for numerical parity tests and speed benchmarks.
+- Configurable GELU MLP or SwiGLU feed-forward blocks.
+- Optional per-layer stochastic depth for the stronger training profile.
 - Residual connections, LayerNorm, dropout, AdamW, gradient clipping, cosine LR
   schedule, checkpointing, and weight tying.
 - Sampling supports temperature, greedy decoding, top-k, and top-p.
 
 Default config: `configs/train_tiny_gpt.yaml`.
+Stronger profile: `configs/dorkllm_frontier.yaml`.
 
 ## Intended Use
 
@@ -28,9 +32,11 @@ This model is intended to show that the author can:
 
 - implement a transformer from first principles;
 - train and checkpoint a small causal language model;
+- post-train it with supervised instruction tuning (SFT);
 - evaluate perplexity and generation behavior;
+- benchmark KV-cache generation speedups;
 - expose the model through a reusable generation provider;
-- serve it through CLI, scripts, FastAPI, and Streamlit.
+- serve it through CLI, scripts, FastAPI, the Matrix chat web app, and Streamlit.
 
 It is useful for portfolio demonstration, tests, local experiments, and
 educational analysis. It is not intended for factual QA, production generation,
@@ -44,6 +50,10 @@ The default pipeline uses public text only:
 - A bundled public-domain Shakespeare excerpt as an offline fallback.
 - Custom public or synthetic text can be configured through
   `data.dataset: custom` and `data.raw_path`.
+
+The stronger `configs/dorkllm_frontier.yaml` profile targets TinyStories-scale
+training with an 8k BPE vocabulary, 512-token context, gradient accumulation,
+RMSNorm, SwiGLU, RoPE, and a dedicated SFT output directory.
 
 No employer data, sensitive documents, private APIs, or proprietary corpora are
 required or included.
@@ -67,6 +77,8 @@ The local checkpoint and tokenizer are ignored by git. Regenerate them with:
 ```bash
 make train-tokenizer
 make train-small-gpt
+make sft
+make benchmark
 make generate
 ```
 
@@ -85,10 +97,17 @@ Use:
 ```bash
 make eval
 make benchmark_inference
+make scaling-study
+make experiments
 ```
 
 The evaluation harness can target the local checkpoint, a Hugging Face model, or
 the deterministic mock provider used in CI. See `docs/eval_harness.md`.
+
+The scaling study in `scripts/scaling_study.py` is a small ablation over model
+width/depth that writes `reports/scaling_study.json` and the committed plot at
+`docs/assets/scaling_study.png`. It is useful for demonstrating methodology, not
+for making frontier-scale claims.
 
 ## Risks and Mitigations
 
@@ -98,5 +117,6 @@ the deterministic mock provider used in CI. See `docs/eval_harness.md`.
   benign synthetic refusal tests, but this is not a safety certification.
 - Overclaiming risk: all docs state that the model is compact and
   educational-scale.
-- Reproducibility risk: configs, seeds, checkpoint metadata, and ignored artifact
-  rules keep runs repeatable without committing large binaries.
+- Reproducibility risk: configs, seeds, checkpoint metadata, local experiment
+  tracking, and ignored artifact rules keep runs repeatable without committing
+  large binaries.

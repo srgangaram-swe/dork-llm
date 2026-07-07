@@ -6,9 +6,10 @@ PY ?= python
 PIP ?= $(PY) -m pip
 PKG := dork
 
-# Config file defaults (override on the command line, e.g. `make train-small-gpt CONFIG=...`)
+# Config file defaults (override on the command line, e.g. `make train-small-gpt TRAIN_CONFIG=...`)
 TOKENIZER_CONFIG ?= configs/train_tiny_gpt.yaml
 TRAIN_CONFIG     ?= configs/train_tiny_gpt.yaml
+FRONTIER_CONFIG  ?= configs/dorkllm_frontier.yaml
 EVAL_CONFIG      ?= configs/eval_default.yaml
 RAG_CONFIG       ?= configs/rag_default.yaml
 
@@ -37,6 +38,10 @@ format: ## Auto-format with black + ruff --fix
 	black $(PKG) scripts apps tests
 	ruff check --fix $(PKG) scripts apps tests
 
+.PHONY: format-check
+format-check: ## Check formatting with black
+	black --check $(PKG) scripts apps tests
+
 .PHONY: typecheck
 typecheck: ## Static type check with mypy
 	mypy $(PKG)
@@ -50,7 +55,7 @@ test-fast: ## Run tests excluding slow ones
 	pytest -m "not slow"
 
 .PHONY: check
-check: lint typecheck test ## Run lint + typecheck + tests (CI parity)
+check: lint format-check typecheck test ## Run lint + format check + typecheck + tests (CI parity)
 
 # ──────────────────────── ML pipelines ───────────────────────────
 .PHONY: prepare-data
@@ -64,6 +69,16 @@ train-tokenizer: ## Train the BPE tokenizer
 .PHONY: train-small-gpt
 train-small-gpt: ## Train the tiny GPT from scratch
 	$(PY) scripts/train_tiny_gpt.py --config $(TRAIN_CONFIG)
+
+.PHONY: train-frontier
+train-frontier: ## Train the stronger dorkLLM profile (TinyStories + RMSNorm/SwiGLU/RoPE)
+	$(PY) scripts/prepare_dataset.py --config $(FRONTIER_CONFIG)
+	$(PY) scripts/train_tokenizer.py --config $(FRONTIER_CONFIG)
+	$(PY) scripts/train_tiny_gpt.py --config $(FRONTIER_CONFIG)
+
+.PHONY: sft
+sft: ## Instruction-tune (SFT) the base model
+	$(PY) scripts/finetune_sft.py --config $(TRAIN_CONFIG)
 
 .PHONY: generate
 generate: ## Generate text from the trained model
@@ -96,6 +111,14 @@ benchmark-inference: benchmark ## Alias for `make benchmark`
 .PHONY: benchmark_inference
 benchmark_inference: benchmark ## Alias for `make benchmark`
 
+.PHONY: scaling-study
+scaling-study: ## Run the reproducible scaling study (params vs. loss + plot)
+	$(PY) scripts/scaling_study.py
+
+.PHONY: experiments
+experiments: ## List local experiment tracking runs
+	$(PY) -m dork.utils.tracking --out-dir experiments
+
 .PHONY: smoke
 smoke: ## Run the end-to-end smoke test used by CI
 	$(PY) scripts/smoke_test.py
@@ -104,6 +127,10 @@ smoke: ## Run the end-to-end smoke test used by CI
 .PHONY: api
 api: ## Run the FastAPI service
 	uvicorn apps.api:app --reload --host 0.0.0.0 --port 8000
+
+.PHONY: web
+web: ## Run the Matrix chat web app + API
+	uvicorn apps.api:app --reload --host 127.0.0.1 --port 8790
 
 .PHONY: dashboard
 dashboard: ## Run the Streamlit dashboard

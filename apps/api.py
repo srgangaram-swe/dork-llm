@@ -2,6 +2,7 @@
 
 Endpoints:
     GET  /health         — liveness + model/RAG status
+    POST /chat           — chat endpoint for the web UI
     POST /generate       — text generation from the tiny GPT (mock fallback)
     POST /evaluate       — run the evaluation harness
     POST /rag/ingest     — ingest documents into the vector store
@@ -14,9 +15,13 @@ Run with: ``uvicorn apps.api:app --reload`` (or ``make api``).
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from dork import __version__
 from dork.serving.schemas import (
     AgentRequest,
+    ChatRequest,
+    ChatResponse,
     EvalRequest,
     GenerateRequest,
     GenerateResponse,
@@ -27,6 +32,7 @@ from dork.serving.schemas import (
 )
 from dork.serving.service import DorkService
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 app = FastAPI(
     title="Dork LLM",
@@ -58,6 +64,21 @@ def generate(req: GenerateRequest) -> GenerateResponse:
     return GenerateResponse(**out)
 
 
+@app.post("/chat", response_model=ChatResponse, tags=["model"])
+def chat(req: ChatRequest) -> ChatResponse:
+    out = service.chat(
+        req.message,
+        mode=req.mode,
+        history=[item.model_dump() for item in req.history],
+        retrieval_top_k=req.retrieval_top_k,
+        max_new_tokens=req.max_new_tokens,
+        temperature=req.temperature,
+        sampling_top_k=req.sampling_top_k,
+        top_p=req.top_p,
+    )
+    return ChatResponse(**out)
+
+
 @app.post("/evaluate", response_model=GenericResponse, tags=["evaluation"])
 def evaluate(req: EvalRequest) -> GenericResponse:
     return GenericResponse(result=service.evaluate(req.config))
@@ -76,3 +97,8 @@ def rag_query(req: RagQueryRequest) -> GenericResponse:
 @app.post("/agent/run", response_model=GenericResponse, tags=["agents"])
 def agent_run(req: AgentRequest) -> GenericResponse:
     return GenericResponse(result=service.run_agent(req.task))
+
+
+WEB_DIR = Path(__file__).resolve().parent / "web"
+if WEB_DIR.exists():
+    app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="web")

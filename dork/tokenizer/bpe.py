@@ -68,6 +68,9 @@ class BPETokenizer(Tokenizer):
     def encode_batch(self, texts: list[str]) -> list[list[int]]:
         return [enc.ids for enc in self._tk.encode_batch(texts)]  # type: ignore[attr-defined]
 
+    def token_to_id(self, token: str) -> int | None:
+        return self._tk.token_to_id(token)  # type: ignore[attr-defined]
+
     def save(self, path: str | Path) -> Path:
         p = resolve_path(path, create_parent=True)
         self._tk.save(str(p))  # type: ignore[attr-defined]

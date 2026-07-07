@@ -61,3 +61,11 @@ report:
   thresholds:
     json_validity.valid_rate: 0.0   # mock model won't pass; raise for real models
     exact_match.accuracy: 0.0
+
+tracking:
+  # Eval already writes reports/ artifacts; this adds lightweight run history.
+  enabled: true
+  out_dir: experiments
+  project: dork-llm
+  wandb: false
+  tags: ["eval"]
