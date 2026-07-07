@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>dorkLLM Chat</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <canvas id="matrix-rain" aria-hidden="true"></canvas>
+    <main class="shell">
+      <section class="chat-panel" aria-label="dorkLLM chat">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">local-first research assistant</p>
+            <h1>dorkLLM</h1>
+          </div>
+          <div class="status-pill" id="status-pill">
+            <span class="pulse"></span>
+            <span id="status-text">booting</span>
+          </div>
+        </header>
+
+        <section class="messages" id="messages" aria-live="polite"></section>
+
+        <form class="composer" id="composer">
+          <textarea
+            id="prompt"
+            name="prompt"
+            rows="2"
+            placeholder="Ask dorkLLM about transformers, RAG, training, evals..."
+            autocomplete="off"
+          ></textarea>
+          <button class="send-button" id="send-button" type="submit" title="Send message">
+            Send
+          </button>
+        </form>
+      </section>
+
+      <aside class="control-panel" aria-label="chat controls">
+        <div class="brand-mark">DORK</div>
+        <div class="control-group">
+          <label>Mode</label>
+          <div class="segmented" role="group" aria-label="chat mode">
+            <button type="button" class="mode-button active" data-mode="auto">Auto</button>
+            <button type="button" class="mode-button" data-mode="rag">RAG</button>
+            <button type="button" class="mode-button" data-mode="generate">Gen</button>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <label for="temperature">Temperature <span id="temperature-value">0.7</span></label>
+          <input id="temperature" type="range" min="0" max="1.4" value="0.7" step="0.1" />
+        </div>
+
+        <div class="control-group">
+          <label for="max-tokens">Max tokens <span id="max-tokens-value">256</span></label>
+          <input id="max-tokens" type="range" min="32" max="512" value="256" step="32" />
+        </div>
+
+        <div class="control-group stats">
+          <div>
+            <span>Model</span>
+            <strong id="model-name">checking</strong>
+          </div>
+          <div>
+            <span>RAG chunks</span>
+            <strong id="rag-count">0</strong>
+          </div>
+          <div>
+            <span>Last latency</span>
+            <strong id="latency">-</strong>
+          </div>
+        </div>
+      </aside>
+    </main>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

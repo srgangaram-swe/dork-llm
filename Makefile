@@ -9,6 +9,7 @@ PKG := dork
 # Config file defaults (override on the command line, e.g. `make train-small-gpt TRAIN_CONFIG=...`)
 TOKENIZER_CONFIG ?= configs/train_tiny_gpt.yaml
 TRAIN_CONFIG     ?= configs/train_tiny_gpt.yaml
+FRONTIER_CONFIG  ?= configs/dorkllm_frontier.yaml
 EVAL_CONFIG      ?= configs/eval_default.yaml
 RAG_CONFIG       ?= configs/rag_default.yaml
 
@@ -69,6 +70,12 @@ train-tokenizer: ## Train the BPE tokenizer
 train-small-gpt: ## Train the tiny GPT from scratch
 	$(PY) scripts/train_tiny_gpt.py --config $(TRAIN_CONFIG)
 
+.PHONY: train-frontier
+train-frontier: ## Train the stronger dorkLLM profile (TinyStories + RMSNorm/SwiGLU/RoPE)
+	$(PY) scripts/prepare_dataset.py --config $(FRONTIER_CONFIG)
+	$(PY) scripts/train_tokenizer.py --config $(FRONTIER_CONFIG)
+	$(PY) scripts/train_tiny_gpt.py --config $(FRONTIER_CONFIG)
+
 .PHONY: sft
 sft: ## Instruction-tune (SFT) the base model
 	$(PY) scripts/finetune_sft.py --config $(TRAIN_CONFIG)
@@ -120,6 +127,10 @@ smoke: ## Run the end-to-end smoke test used by CI
 .PHONY: api
 api: ## Run the FastAPI service
 	uvicorn apps.api:app --reload --host 0.0.0.0 --port 8000
+
+.PHONY: web
+web: ## Run the Matrix chat web app + API
+	uvicorn apps.api:app --reload --host 127.0.0.1 --port 8790
 
 .PHONY: dashboard
 dashboard: ## Run the Streamlit dashboard

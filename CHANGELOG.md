@@ -7,6 +7,13 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Stronger dorkLLM track**: `configs/dorkllm_frontier.yaml` adds a
+  TinyStories-oriented profile with longer context, 8k BPE, RMSNorm, SwiGLU,
+  RoPE, stochastic depth, gradient accumulation, and a dedicated SFT path.
+- **Modern block variants**: `TinyGPT` now supports LayerNorm/RMSNorm,
+  GELU/SwiGLU feed-forward blocks, and per-layer stochastic-depth scheduling.
+- **Matrix chat web app**: `make web` serves a polished purple chat UI at `/`
+  backed by the new `/chat` endpoint with RAG-first and generation fallback.
 - **KV-cache inference**: incremental decoding with a per-layer key/value cache,
   numerically identical to the reference path and ~9× faster generation on CPU.
 - **Supervised fine-tuning (SFT)**: instruction-tuning with a prompt template and

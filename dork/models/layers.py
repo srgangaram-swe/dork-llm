@@ -28,6 +28,19 @@ class LayerNorm(nn.Module):
         return F.layer_norm(x, self.weight.shape, self.weight, self.bias, eps=1e-5)
 
 
+class RMSNorm(nn.Module):
+    """Root-mean-square normalization used by many modern decoder LLMs."""
+
+    def __init__(self, ndim: int, eps: float = 1e-6) -> None:
+        super().__init__()
+        self.weight = nn.Parameter(torch.ones(ndim))
+        self.eps = eps
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        rms = torch.rsqrt(x.pow(2).mean(dim=-1, keepdim=True) + self.eps)
+        return self.weight * x * rms
+
+
 def sinusoidal_position_embedding(block_size: int, n_embd: int) -> torch.Tensor:
     """Return the classic (Vaswani et al.) fixed sinusoidal position table."""
     position = torch.arange(block_size).unsqueeze(1)
@@ -181,6 +194,43 @@ class MLP(nn.Module):
         return self.dropout(self.c_proj(self.gelu(self.c_fc(x))))
 
 
+class SwiGLU(nn.Module):
+    """Gated feedforward network with SwiGLU activation.
+
+    The hidden width follows the common 8/3 expansion used to keep parameter
+    count near a 4x GELU MLP while adding a learned gate.
+    """
+
+    def __init__(self, n_embd: int, dropout: float = 0.0, bias: bool = False) -> None:
+        super().__init__()
+        hidden_dim = max(8, int(8 * n_embd / 3))
+        self.c_fc = nn.Linear(n_embd, 2 * hidden_dim, bias=bias)
+        self.c_proj = nn.Linear(hidden_dim, n_embd, bias=bias)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        value, gate = self.c_fc(x).chunk(2, dim=-1)
+        return self.dropout(self.c_proj(value * F.silu(gate)))
+
+
+class StochasticDepth(nn.Module):
+    """Drop whole residual branches during training, scaled to preserve expectation."""
+
+    def __init__(self, p: float = 0.0) -> None:
+        super().__init__()
+        if not 0.0 <= p < 1.0:
+            raise ValueError("stochastic depth probability must be in [0, 1).")
+        self.p = p
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.p == 0.0 or not self.training:
+            return x
+        keep_prob = 1.0 - self.p
+        shape = (x.shape[0],) + (1,) * (x.ndim - 1)
+        mask = x.new_empty(shape).bernoulli_(keep_prob)
+        return x.div(keep_prob) * mask
+
+
 class Block(nn.Module):
     """A pre-norm transformer block: ``x + attn(ln1(x))`` then ``x + mlp(ln2(x))``."""
 
@@ -192,12 +242,32 @@ class Block(nn.Module):
         dropout: float = 0.0,
         bias: bool = False,
         use_rope: bool = False,
+        norm_type: str = "layernorm",
+        mlp_type: str = "gelu",
+        stochastic_depth: float = 0.0,
     ) -> None:
         super().__init__()
-        self.ln_1 = LayerNorm(n_embd, bias=bias)
+        self.ln_1: nn.Module
+        self.ln_2: nn.Module
+        self.mlp: nn.Module
+
+        if norm_type == "layernorm":
+            self.ln_1 = LayerNorm(n_embd, bias=bias)
+            self.ln_2 = LayerNorm(n_embd, bias=bias)
+        elif norm_type == "rmsnorm":
+            self.ln_1 = RMSNorm(n_embd)
+            self.ln_2 = RMSNorm(n_embd)
+        else:
+            raise ValueError(f"Unknown norm_type: {norm_type}")
+
         self.attn = CausalSelfAttention(n_embd, n_head, block_size, dropout, bias, use_rope)
-        self.ln_2 = LayerNorm(n_embd, bias=bias)
-        self.mlp = MLP(n_embd, dropout, bias)
+        if mlp_type == "gelu":
+            self.mlp = MLP(n_embd, dropout, bias)
+        elif mlp_type == "swiglu":
+            self.mlp = SwiGLU(n_embd, dropout, bias)
+        else:
+            raise ValueError(f"Unknown mlp_type: {mlp_type}")
+        self.drop_path = StochasticDepth(stochastic_depth)
 
     def forward(
         self,
@@ -206,6 +276,6 @@ class Block(nn.Module):
         use_cache: bool = False,
     ) -> tuple[torch.Tensor, KVCache | None]:
         attn_out, present = self.attn(self.ln_1(x), layer_past=layer_past, use_cache=use_cache)
-        x = x + attn_out
-        x = x + self.mlp(self.ln_2(x))
+        x = x + self.drop_path(attn_out)
+        x = x + self.drop_path(self.mlp(self.ln_2(x)))
         return x, present

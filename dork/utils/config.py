@@ -44,6 +44,9 @@ class ModelConfig(_Base):
     dropout: float = Field(0.1, ge=0.0, le=0.9)
     bias: bool = False
     pos_encoding: Literal["learned", "sinusoidal", "rope"] = "learned"
+    norm_type: Literal["layernorm", "rmsnorm"] = "layernorm"
+    mlp_type: Literal["gelu", "swiglu"] = "gelu"
+    stochastic_depth: float = Field(0.0, ge=0.0, lt=1.0)
 
     @model_validator(mode="after")
     def _check_divisible(self) -> ModelConfig:

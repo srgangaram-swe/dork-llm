@@ -17,7 +17,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from dork.models.layers import Block, KVCache, LayerNorm, sinusoidal_position_embedding
+from dork.models.layers import Block, KVCache, LayerNorm, RMSNorm, sinusoidal_position_embedding
 from dork.utils.config import ModelConfig
 from dork.utils.logging import get_logger
 
@@ -43,6 +43,7 @@ class TinyGPT(nn.Module):
 
         self.token_emb = nn.Embedding(config.vocab_size, config.n_embd)
         self.drop = nn.Dropout(config.dropout)
+        drop_path_rates = torch.linspace(0.0, config.stochastic_depth, config.n_layer).tolist()
         self.blocks = nn.ModuleList(
             [
                 Block(
@@ -52,11 +53,18 @@ class TinyGPT(nn.Module):
                     config.dropout,
                     config.bias,
                     use_rope=self.use_rope,
+                    norm_type=config.norm_type,
+                    mlp_type=config.mlp_type,
+                    stochastic_depth=float(drop_path_rates[i]),
                 )
-                for _ in range(config.n_layer)
+                for i in range(config.n_layer)
             ]
         )
-        self.ln_f = LayerNorm(config.n_embd, bias=config.bias)
+        self.ln_f = (
+            RMSNorm(config.n_embd)
+            if config.norm_type == "rmsnorm"
+            else LayerNorm(config.n_embd, bias=config.bias)
+        )
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 
         # Positional information.

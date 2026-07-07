@@ -8,6 +8,7 @@ in-memory metrics surfaced at ``/metrics``.
 
 from __future__ import annotations
 
+import re
 import threading
 import time
 from collections import defaultdict
@@ -126,6 +127,76 @@ class DorkService:
         ans = self.rag.query(question, top_k=top_k).to_dict()
         self.metrics.record("rag_query", (time.perf_counter() - t0) * 1000)
         return ans
+
+    def chat(
+        self,
+        message: str,
+        mode: str = "auto",
+        history: list[dict[str, str]] | None = None,
+        retrieval_top_k: int = 5,
+        max_new_tokens: int = 256,
+        temperature: float = 0.7,
+        sampling_top_k: int | None = 50,
+        top_p: float | None = 0.95,
+    ) -> dict[str, Any]:
+        """Return a chat response, preferring grounded RAG when evidence exists."""
+        t0 = time.perf_counter()
+        citations: list[dict[str, Any]] = []
+
+        if mode in {"auto", "rag"}:
+            try:
+                rag_out = self.rag_query(message, top_k=retrieval_top_k)
+                if rag_out.get("answer") and (not rag_out.get("refused") or mode == "rag"):
+                    answer = self._clean_rag_answer(str(rag_out["answer"]))
+                    latency = (time.perf_counter() - t0) * 1000
+                    self.metrics.record("chat", latency)
+                    return {
+                        "answer": answer,
+                        "mode": "rag",
+                        "citations": rag_out.get("citations", []),
+                        "model": rag_out.get("model") or self.language_model.name,
+                        "latency_ms": latency,
+                    }
+                citations = rag_out.get("citations", [])
+            except Exception as exc:  # pragma: no cover - defensive serving fallback
+                logger.warning("Chat RAG path failed; falling back to generation: %s", exc)
+
+        prompt = self._chat_prompt(message, history or [])
+        generated = self.generate(
+            prompt,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            top_k=sampling_top_k,
+            top_p=top_p,
+        )
+        latency = (time.perf_counter() - t0) * 1000
+        self.metrics.record("chat", latency)
+        return {
+            "answer": generated["completion"].strip(),
+            "mode": "generate",
+            "citations": citations,
+            "model": generated["model"],
+            "latency_ms": latency,
+        }
+
+    @staticmethod
+    def _chat_prompt(message: str, history: list[dict[str, str]]) -> str:
+        lines = [
+            "You are dorkLLM, a compact local-first AI assistant.",
+            "Be direct, technically honest, and cite uncertainty instead of inventing facts.",
+        ]
+        for item in history[-8:]:
+            role = item.get("role", "user").title()
+            content = item.get("content", "").strip()
+            if content:
+                lines.append(f"{role}: {content}")
+        lines.append(f"User: {message.strip()}")
+        lines.append("Assistant:")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _clean_rag_answer(answer: str) -> str:
+        return re.sub(r"^\s*\[\d+\]\s*", "", answer).strip()
 
     def run_agent(self, task: str) -> dict[str, Any]:
         from dork.agents.research_agent import ResearchAgent
