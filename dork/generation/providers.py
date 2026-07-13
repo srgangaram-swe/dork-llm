@@ -28,6 +28,9 @@ class LanguageModel(abc.ABC):
     """Minimal text-completion contract."""
 
     name: str = "language-model"
+    provider: str = "unknown"
+    artifact: str | None = None
+    device: str | None = None
 
     @abc.abstractmethod
     def complete(
@@ -51,6 +54,7 @@ class MockLanguageModel(LanguageModel):
     """Deterministic, dependency-free stand-in used for offline eval and tests."""
 
     name = "mock-rulebased-v0"
+    provider = "mock"
     _REFUSAL = "I can't help with that. It appears unsafe or unethical."
     _HARMFUL = ("how to make a bomb", "build a weapon", "hack into", "steal", "malware", "poison")
 
@@ -151,9 +155,20 @@ class MockLanguageModel(LanguageModel):
 class LocalGPTModel(LanguageModel):
     """Wrap the repo's trained :class:`~dork.generation.generator.Generator`."""
 
-    def __init__(self, generator: Any, name: str = "dork-tiny-gpt") -> None:
+    provider = "local_gpt"
+
+    def __init__(
+        self,
+        generator: Any,
+        name: str = "dork-tiny-gpt",
+        *,
+        artifact: str | None = None,
+        device: str = "cpu",
+    ) -> None:
         self._gen = generator
         self.name = name
+        self.artifact = artifact
+        self.device = device
 
     @classmethod
     def from_artifacts(cls, ckpt_dir: str, device: str = "cpu") -> LocalGPTModel:
@@ -175,7 +190,7 @@ class LocalGPTModel(LanguageModel):
                 f"({model.config.vocab_size}). Retrain so the tokenizer and "
                 f"checkpoint agree (make train-tokenizer && make train-small-gpt)."
             )
-        return cls(Generator(model, tokenizer, device=device))
+        return cls(Generator(model, tokenizer, device=device), artifact=ckpt_dir, device=device)
 
     def complete(
         self,
@@ -207,10 +222,17 @@ class LocalGPTModel(LanguageModel):
 class HFModel(LanguageModel):
     """Wrap a Hugging Face causal-LM via ``transformers`` (optional extra)."""
 
+    provider = "hf"
+
     def __init__(self, model_name: str, device: str = "cpu") -> None:
         from transformers import AutoModelForCausalLM, AutoTokenizer  # type: ignore
 
+        from dork.training.trainer import resolve_device
+
+        device = resolve_device(device)
         self.name = model_name
+        self.artifact = model_name
+        self.device = device
         self._tok = AutoTokenizer.from_pretrained(model_name)
         self._model = AutoModelForCausalLM.from_pretrained(model_name).to(device)
         self._device = device
@@ -249,11 +271,17 @@ class HFModel(LanguageModel):
         return text
 
 
-def build_language_model(cfg: dict[str, Any]) -> LanguageModel:
+def build_language_model(
+    cfg: dict[str, Any],
+    *,
+    fallback_to_mock: bool = True,
+) -> LanguageModel:
     """Construct a :class:`LanguageModel` from a config dict.
 
     Recognized keys: ``provider`` (mock|local_gpt|hf), ``name``, ``device``.
-    Falls back to the mock on any failure so callers always get a usable model.
+    ``fallback_to_mock`` preserves the lightweight evaluation default. Serving
+    code passes ``False`` (or uses its explicit resolver) so a failed artifact
+    cannot be mistaken for the requested model.
     """
     provider = str(cfg.get("provider", "mock")).lower()
     device = str(cfg.get("device", "cpu"))
@@ -265,12 +293,16 @@ def build_language_model(cfg: dict[str, Any]) -> LanguageModel:
         try:
             return LocalGPTModel.from_artifacts(name, device=device)
         except Exception as exc:
+            if not fallback_to_mock:
+                raise
             logger.warning("Could not load local GPT (%s); using mock.", exc)
             return MockLanguageModel()
     if provider == "hf":
         try:
             return HFModel(name, device=device)
         except Exception as exc:
+            if not fallback_to_mock:
+                raise
             logger.warning("Could not load HF model %s (%s); using mock.", name, exc)
             return MockLanguageModel()
     raise ValueError(f"Unknown model provider: {provider!r}")

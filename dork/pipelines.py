@@ -23,6 +23,38 @@ from dork.utils.tracking import start_tracker
 logger = get_logger(__name__)
 
 
+def _synchronize_device(device: str) -> None:
+    """Wait for queued accelerator work before reading the benchmark clock."""
+    if device.startswith("cuda"):
+        import torch
+
+        torch.cuda.synchronize()
+    elif device.startswith("mps"):
+        import torch
+
+        torch.mps.synchronize()
+
+
+def _latency_summary(latencies_s: list[float], new_tokens: int) -> dict[str, float]:
+    """Summarize positive request latencies without discarding pair order."""
+    import numpy as np
+
+    if not latencies_s or any(value <= 0.0 for value in latencies_s):
+        raise ValueError("latencies must be a non-empty sequence of positive values")
+    latencies = np.asarray(latencies_s, dtype=np.float64)
+    mean_s = float(np.mean(latencies))
+    p50_s, p95_s = np.quantile(latencies, [0.5, 0.95])
+    std_s = float(np.std(latencies, ddof=1)) if latencies.size > 1 else 0.0
+    return {
+        "mean_ms": mean_s * 1000.0,
+        "p50_ms": float(p50_s) * 1000.0,
+        "p95_ms": float(p95_s) * 1000.0,
+        "std_ms": std_s * 1000.0,
+        "coefficient_of_variation": std_s / mean_s,
+        "tokens_per_sec": new_tokens / mean_s,
+    }
+
+
 def _eval_summary_metrics(report: dict[str, Any]) -> dict[str, float]:
     """Flatten eval summary rows into ``suite.metric -> value`` scalars."""
     metrics: dict[str, float] = {}
@@ -126,15 +158,34 @@ def generate(config_path: str, prompt: str, **overrides: Any) -> str:
     return gen.generate(prompt, cfg=gcfg)
 
 
-def benchmark(config_path: str, n_requests: int = 20) -> dict[str, Any]:
+def benchmark(
+    config_path: str,
+    n_requests: int = 20,
+    *,
+    warmup_requests: int = 2,
+    bootstrap_resamples: int = 5_000,
+    bootstrap_seed: int = 0,
+) -> dict[str, Any]:
     """Benchmark generation latency/throughput and the KV-cache speedup.
 
-    Times the same decode both with the KV cache and with the O(T²) reference
-    path so the report quantifies the inference optimization, not just raw speed.
+    The protocol runs identical seeded decodes as adjacent pairs and alternates
+    which implementation runs first.  This controls generation workload and
+    reduces bias from thermal or background-load drift.  CUDA and MPS queues are
+    synchronized around every timed region.
     """
     import time
 
+    if isinstance(n_requests, bool) or not isinstance(n_requests, int) or n_requests <= 0:
+        raise ValueError("n_requests must be a positive integer")
+    if (
+        isinstance(warmup_requests, bool)
+        or not isinstance(warmup_requests, int)
+        or warmup_requests <= 0
+    ):
+        raise ValueError("warmup_requests must be a positive integer")
+
     cfg = load_tiny_gpt_config(config_path)
+    from dork.evaluation.statistics import paired_bootstrap
     from dork.generation.generator import Generator
     from dork.tokenizer.factory import load_tokenizer
     from dork.training.checkpoint import load_model_from_checkpoint
@@ -147,27 +198,83 @@ def benchmark(config_path: str, n_requests: int = 20) -> dict[str, Any]:
 
     prompt = "Once upon a time"
     tokens = cfg.generation.max_new_tokens
-    gen.generate(prompt, max_new_tokens=8, temperature=0.8)  # warmup
+    warmup_tokens = min(tokens, 8)
 
-    def _time(use_cache: bool) -> list[float]:
-        lat = []
-        for _ in range(n_requests):
-            t0 = time.perf_counter()
-            gen.generate(prompt, max_new_tokens=tokens, temperature=0.8, use_cache=use_cache)
-            lat.append(time.perf_counter() - t0)
-        return sorted(lat)
+    def _generate(*, use_cache: bool, new_tokens: int, seed: int) -> str:
+        return gen.generate(
+            prompt,
+            max_new_tokens=new_tokens,
+            temperature=0.8,
+            seed=seed,
+            use_cache=use_cache,
+        )
 
-    def _summary(lat: list[float]) -> dict[str, float]:
-        mean_s = sum(lat) / len(lat)
-        return {
-            "mean_ms": mean_s * 1000,
-            "p50_ms": lat[len(lat) // 2] * 1000,
-            "p95_ms": lat[min(len(lat) - 1, int(0.95 * len(lat)))] * 1000,
-            "tokens_per_sec": tokens / mean_s if mean_s else float("inf"),
-        }
+    # Warm both implementations equally.  Alternate order here and below so a
+    # consistently first implementation does not inherit a systematic bias.
+    for warmup_index in range(warmup_requests):
+        modes = (True, False) if warmup_index % 2 == 0 else (False, True)
+        for use_cache in modes:
+            _generate(
+                use_cache=use_cache,
+                new_tokens=warmup_tokens,
+                seed=int(cfg.seed) + warmup_index,
+            )
+            _synchronize_device(device)
 
-    kv = _summary(_time(use_cache=True))
-    ref = _summary(_time(use_cache=False))
+    kv_latencies: list[float] = []
+    reference_latencies: list[float] = []
+    pairs: list[dict[str, Any]] = []
+    for pair_index in range(n_requests):
+        order = ("kv_cache", "reference") if pair_index % 2 == 0 else ("reference", "kv_cache")
+        pair_seed = int(cfg.seed) + warmup_requests + pair_index
+        durations: dict[str, float] = {}
+        outputs: dict[str, str] = {}
+        for mode in order:
+            _synchronize_device(device)
+            start_ns = time.perf_counter_ns()
+            outputs[mode] = _generate(
+                use_cache=mode == "kv_cache",
+                new_tokens=tokens,
+                seed=pair_seed,
+            )
+            _synchronize_device(device)
+            durations[mode] = (time.perf_counter_ns() - start_ns) / 1_000_000_000.0
+
+        kv_s = durations["kv_cache"]
+        reference_s = durations["reference"]
+        if kv_s <= 0.0 or reference_s <= 0.0:
+            raise RuntimeError("benchmark clock did not advance during generation")
+        kv_latencies.append(kv_s)
+        reference_latencies.append(reference_s)
+        pairs.append(
+            {
+                "pair": pair_index + 1,
+                "seed": pair_seed,
+                "order": list(order),
+                "kv_cache_ms": kv_s * 1000.0,
+                "reference_ms": reference_s * 1000.0,
+                "reference_minus_kv_ms": (reference_s - kv_s) * 1000.0,
+                "speedup": reference_s / kv_s,
+                "outputs_match": outputs["kv_cache"] == outputs["reference"],
+            }
+        )
+
+    kv = _latency_summary(kv_latencies, tokens)
+    ref = _latency_summary(reference_latencies, tokens)
+    speedup = paired_bootstrap(
+        reference_latencies,
+        kv_latencies,
+        statistic="ratio_of_means",
+        n_resamples=bootstrap_resamples,
+        seed=bootstrap_seed,
+    )
+    savings = paired_bootstrap(
+        reference_latencies,
+        kv_latencies,
+        statistic="mean_delta",
+        n_resamples=bootstrap_resamples,
+        seed=bootstrap_seed,
+    )
     result = {
         "device": device,
         "params": model.num_params(),
@@ -175,9 +282,27 @@ def benchmark(config_path: str, n_requests: int = 20) -> dict[str, Any]:
         "new_tokens": tokens,
         "kv_cache": kv,
         "reference": ref,
-        "speedup": ref["mean_ms"] / kv["mean_ms"] if kv["mean_ms"] else float("inf"),
-        # Flattened aliases for backwards-compatible dashboards.
-        "mean_ms": kv["mean_ms"],
+        "speedup": speedup.estimate,
+        "paired_speedup": speedup.as_dict(),
+        "paired_latency_savings_ms": {
+            **savings.as_dict(),
+            "estimate": savings.estimate * 1000.0,
+            "ci_low": savings.ci_low * 1000.0,
+            "ci_high": savings.ci_high * 1000.0,
+            "unit": "ms",
+        },
+        "pairs": pairs,
+        "protocol": {
+            "clock": "time.perf_counter_ns",
+            "warmup_requests_per_implementation": warmup_requests,
+            "warmup_new_tokens": warmup_tokens,
+            "paired_interleaving": True,
+            "counterbalanced_order": True,
+            "identical_seed_within_pair": True,
+            "device_synchronization": device.startswith(("cuda", "mps")),
+        },
+        # Backwards-compatible throughput alias; mean latency lives under
+        # ``kv_cache`` only so the report has a single authoritative mean_ms.
         "tokens_per_sec": kv["tokens_per_sec"],
     }
     tracker = start_tracker(cfg.tracking, "benchmark-inference", config=cfg, tags=["benchmark"])
@@ -188,6 +313,8 @@ def benchmark(config_path: str, n_requests: int = 20) -> dict[str, Any]:
                 "reference_mean_ms": ref["mean_ms"],
                 "kv_tokens_per_sec": kv["tokens_per_sec"],
                 "speedup": result["speedup"],
+                "speedup_ci_low": speedup.ci_low,
+                "speedup_ci_high": speedup.ci_high,
             }
         )
         result["tracking_run_dir"] = str(tracker.run_dir)

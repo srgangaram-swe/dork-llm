@@ -1,0 +1,22 @@
+{
+  "name": "axiomstack-dorkchat",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser research cockpit for the AxiomStack DorkLLM platform.",
+  "scripts": {
+    "format": "prettier --write \"apps/web/**/*.{html,css,js}\" \"tests/web/**/*.js\" \"tests/e2e/**/*.js\" playwright.config.js package.json",
+    "format:check": "prettier --check \"apps/web/**/*.{html,css,js}\" \"tests/web/**/*.js\" \"tests/e2e/**/*.js\" playwright.config.js package.json",
+    "test:web": "node --test tests/web/*.test.js",
+    "test:e2e": "playwright test",
+    "test": "npm run test:web"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.10.2",
+    "@playwright/test": "^1.52.0",
+    "prettier": "^3.5.3"
+  }
+}

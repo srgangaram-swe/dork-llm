@@ -24,7 +24,10 @@ from rich.console import Console
 from dork import __version__
 from dork import pipelines as P
 
-app = typer.Typer(add_completion=False, help="Dork LLM — train, evaluate, retrieve, and serve.")
+app = typer.Typer(
+    add_completion=False,
+    help="AxiomStack — train and evaluate DorkLLM, then serve it through DorkChat.",
+)
 console = Console()
 
 TRAIN_CFG = "configs/train_tiny_gpt.yaml"

@@ -40,6 +40,9 @@ class ModelConfig(_Base):
     block_size: int = Field(256, ge=8)
     n_layer: int = Field(6, ge=1)
     n_head: int = Field(6, ge=1)
+    # ``None`` preserves the original multi-head attention layout. Lower values
+    # enable grouped-query attention while retaining ``n_head`` query heads.
+    n_kv_head: int | None = Field(None, ge=1)
     n_embd: int = Field(384, ge=8)
     dropout: float = Field(0.1, ge=0.0, le=0.9)
     bias: bool = False
@@ -47,11 +50,17 @@ class ModelConfig(_Base):
     norm_type: Literal["layernorm", "rmsnorm"] = "layernorm"
     mlp_type: Literal["gelu", "swiglu"] = "gelu"
     stochastic_depth: float = Field(0.0, ge=0.0, lt=1.0)
+    qk_norm: bool = False
 
     @model_validator(mode="after")
     def _check_divisible(self) -> ModelConfig:
         if self.n_embd % self.n_head != 0:
             raise ValueError(f"n_embd ({self.n_embd}) must be divisible by n_head ({self.n_head})")
+        n_kv_head = self.n_head if self.n_kv_head is None else self.n_kv_head
+        if n_kv_head > self.n_head:
+            raise ValueError(f"n_kv_head ({n_kv_head}) cannot exceed n_head ({self.n_head})")
+        if self.n_head % n_kv_head != 0:
+            raise ValueError(f"n_head ({self.n_head}) must be divisible by n_kv_head ({n_kv_head})")
         return self
 
 

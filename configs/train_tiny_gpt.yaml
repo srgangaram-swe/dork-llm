@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────────
-# Dork LLM — Tiny GPT training configuration.
+# AxiomStack — baseline DorkLLM training configuration.
 #
 # This is a *compact, educational-scale* config. It trains a ~10M parameter
 # decoder-only transformer on a small public corpus in minutes on CPU and
@@ -30,10 +30,12 @@ model:
   block_size: 128        # context length
   n_layer: 4
   n_head: 4
+  n_kv_head: 4           # KV heads; equal to n_head preserves standard MHA
   n_embd: 256            # must be divisible by n_head
   dropout: 0.1
   bias: false            # GPT-2 style: no bias in Linear/LayerNorm
   pos_encoding: learned  # learned | sinusoidal | rope
+  qk_norm: false         # per-head RMS normalization of projected queries/keys
 
 training:
   batch_size: 16

@@ -1,6 +1,6 @@
 # Data
 
-Dork LLM is designed to be clean-room and public-data only.
+AxiomStack is designed to be clean-room and public-data only.
 
 Tracked data:
 

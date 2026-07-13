@@ -1,258 +1,251 @@
 <div align="center">
 
-# 🧠 Dork LLM
+# AxiomStack
 
-**An end-to-end LLM systems platform — train a GPT from scratch, evaluate it with a reusable harness, serve grounded answers over your documents, and talk to it through a Matrix-styled web app.**
+### Proof. Probability. Production.
+
+**A statistically rigorous, full-stack language-model lab: build DorkLLM from
+first principles, measure it honestly, ground it in evidence, and ship it
+through DorkChat.**
 
 [![CI](https://github.com/srgangaram-swe/dork-llm/actions/workflows/ci.yml/badge.svg)](https://github.com/srgangaram-swe/dork-llm/actions/workflows/ci.yml)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
+[![Python 3.11–3.13](https://img.shields.io/badge/python-3.11%E2%80%933.13-blue.svg)](https://www.python.org/)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![Lint: ruff](https://img.shields.io/badge/lint-ruff-orange.svg)](https://github.com/astral-sh/ruff)
 [![Types: mypy](https://img.shields.io/badge/types-mypy-2A6DB2.svg)](https://mypy-lang.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-*Local-first · reproducible · tested · honestly scoped.*
+*Local-first · public-data only · reproducible · explicit about uncertainty*
 
 </div>
 
----
+## Why AxiomStack exists
 
-## Why this project exists
+Many LLM portfolios stop at a notebook or an API wrapper. AxiomStack treats a
+language-model product as one connected technical system:
 
-Most "LLM projects" are a single notebook calling an API. Real LLM/AI-systems work spans **three** disciplines that rarely appear together:
+1. **Mathematical and model correctness** — explicit causal attention,
+   next-token objectives, normalization, sampling, and cache invariants.
+2. **Statistical evidence** — per-example evaluation, controlled experiments,
+   regression gates, calibration and uncertainty on the roadmap.
+3. **Production software** — typed boundaries, an API and streaming browser
+   client, unit/integration/browser tests, CI, containers, and observability.
 
-1. **Model internals** — can you actually *build* a transformer, not just call one?
-2. **Evaluation** — can you measure whether a model is correct, grounded, safe, and fast *before* shipping?
-3. **Applied systems** — can you turn a model into a grounded, cited product with retrieval and tools?
+The model is intentionally small enough to inspect and train locally. This is
+not a frontier-model claim. The point is to make the reasoning, evidence, and
+engineering around the model reviewable end to end.
 
-**Dork LLM** demonstrates all three in one cohesive, production-style codebase. It is deliberately **compact and educational-scale** — a few-million-parameter model on small public corpora — but engineered like real infrastructure: typed configs, a package + CLI, tests, CI, Docker, an API, and a dashboard. See [docs/limitations.md](docs/limitations.md) for an honest scope statement.
+## The three product layers
 
-> **Not** a frontier model. **Yes** a faithful, end-to-end demonstration of the engineering that surrounds one.
-
-## What it does
-
-| Subsystem | What it proves | Key modules |
+| Layer | Role | What it demonstrates |
 |---|---|---|
-| 🏗️ **GPT from scratch** | Transformer internals: token/positional embeddings, causal multi-head attention, residual stream, weight tying, AdamW + cosine schedule, checkpointing, sampling | [`dork/models`](dork/models), [`dork/training`](dork/training), [`dork/generation`](dork/generation) |
-| 🧪 **Frontier-track small model** | Stronger architecture knobs: RoPE, RMSNorm, SwiGLU, stochastic depth, gradient accumulation, and a TinyStories-oriented config | [`configs/dorkllm_frontier.yaml`](configs/dorkllm_frontier.yaml), [`dork/models/layers.py`](dork/models/layers.py) |
-| ⚡ **Fast inference + SFT** | KV-cache generation benchmark, instruction-tuning with response-only loss masking, and local/W&B experiment tracking | [`dork/models`](dork/models), [`dork/training/sft.py`](dork/training/sft.py), [`dork/utils/tracking.py`](dork/utils/tracking.py) |
-| 📊 **Evaluation harness** | Pre-deployment measurement: perplexity, exact-match, MCQ, JSON validity, instruction-following, RAG faithfulness, tool-use, safety, latency — with CI gating | [`dork/evaluation`](dork/evaluation) |
-| 🔎 **RAG + agent** | Grounded, cited answers over documents; an agent that searches, summarizes, compares, extracts claims, and uses tools — and refuses without evidence | [`dork/rag`](dork/rag), [`dork/agents`](dork/agents) |
-| 🚀 **Serving** | FastAPI service, Matrix chat web app, and Streamlit dashboard over a shared service layer | [`apps/api.py`](apps/api.py), [`apps/web`](apps/web), [`apps/dashboard.py`](apps/dashboard.py) |
+| **AxiomStack** | Platform and research workbench | Reproducible pipelines, evaluation, retrieval, APIs, CI/CD, and portfolio delivery |
+| **DorkLLM** | From-scratch decoder model family | Causal attention, RoPE, RMSNorm, SwiGLU, GQA, QK normalization, KV caching, training, and SFT |
+| **DorkChat** | Browser research cockpit | Streaming chat, runtime provenance, generation controls, evidence cards, accessibility, and responsive UX |
 
-## Architecture
+## System map
 
 ```mermaid
 flowchart LR
-    subgraph Train["Tiny GPT (from scratch)"]
-        A[Public corpus<br/>TinyShakespeare/TinyStories] --> B[Tokenizer<br/>byte-level BPE / char]
-        B --> C[TinyGPT<br/>decoder-only transformer]
-        C --> D[Generation<br/>temp · top-k · top-p]
+    subgraph Research["Model research"]
+        DATA[Public text] --> TOK[Tokenizer]
+        TOK --> LM[DorkLLM]
+        LM --> SFT[Response-only SFT]
+        LM --> EVAL[Evaluation]
+        SFT --> EVAL
     end
-    subgraph RAG["RAG + Agent"]
-        E[Docs<br/>pdf/md/txt] --> F[Chunk] --> G[Embed] --> H[(Vector DB)]
-        H --> I[Retrieve + rerank] --> J[Grounded answer<br/>+ citations]
-        J --> K[Research agent<br/>search · summarize · compare · tools]
+
+    subgraph Grounding["Grounding and tools"]
+        DOCS[Documents] --> INDEX[Chunk · embed · index]
+        INDEX --> RAG[Retrieve · rerank · cite]
+        RAG --> AGENT[Bounded research agent]
     end
-    subgraph Eval["Evaluation harness"]
-        L[Models / prompts / agents] --> M[Suites<br/>ppl · EM · MCQ · JSON · faithfulness · tool-use · latency]
-        M --> N[Reports<br/>JSON · CSV · Markdown · plots · CI gate]
+
+    subgraph Product["Product surface"]
+        SERVICE[Typed service layer] --> API[FastAPI + SSE]
+        API --> CHAT[DorkChat]
+        SERVICE --> DASH[Streamlit]
     end
-    D -.evaluated by.-> Eval
-    J -.evaluated by.-> Eval
-    Train & RAG & Eval --> S[FastAPI + Streamlit]
+
+    SFT --> SERVICE
+    RAG --> SERVICE
+    AGENT --> SERVICE
+    EVAL -. release gates .-> SERVICE
 ```
 
-A core design principle is **local-first with graceful fallbacks**: every subsystem has a zero-dependency path (a deterministic mock model, a hashing embedder, an in-memory vector store) so the whole platform runs and self-tests fully offline, then swaps in heavier backends (PyTorch, sentence-transformers, ChromaDB) for real use.
+## What is implemented
+
+| Capability | Evidence in the repository |
+|---|---|
+| Decoder-only transformer from explicit PyTorch components | [`dork/models`](dork/models) |
+| Learned/sinusoidal/RoPE positions; LayerNorm/RMSNorm; GELU/SwiGLU | [`dork/models/layers.py`](dork/models/layers.py) |
+| Multi-head or grouped-query attention, optional QK normalization, compact KV cache | [`dork/models/layers.py`](dork/models/layers.py), [`tests/test_model.py`](tests/test_model.py) |
+| Causal pretraining and corrected next-token, response-only SFT | [`dork/training`](dork/training), [`tests/test_sft.py`](tests/test_sft.py) |
+| Greedy, temperature, top-k and nucleus sampling | [`dork/generation`](dork/generation) |
+| Evaluation suites for quality, structure, retrieval, tools, safety and latency | [`dork/evaluation`](dork/evaluation) |
+| Source-grounded RAG with refusal and exact citation provenance | [`dork/rag`](dork/rag) |
+| FastAPI, versioned streaming chat, runtime readiness and shared model routing | [`apps/api.py`](apps/api.py), [`dork/serving`](dork/serving) |
+| Accessible DorkChat client plus frontend unit and Playwright tests | [`apps/web`](apps/web), [`tests/web`](tests/web), [`tests/e2e`](tests/e2e) |
+| Python 3.11–3.13 CI, smoke training, web checks, and non-root container | [`.github/workflows/ci.yml`](.github/workflows/ci.yml), [`Dockerfile`](Dockerfile) |
 
 ## Quickstart
 
+Requires Python 3.11 or newer.
+
 ```bash
-# 1. Install (editable, all extras) and the git hooks
-make install            # or: pip install -e ".[all]"
+git clone https://github.com/srgangaram-swe/dork-llm.git
+cd dork-llm
+python -m venv .venv
+source .venv/bin/activate
+make install
+make check
+```
 
-# 2. Run the offline self-test of the whole platform (no GPU, ~1 min)
-make smoke
+Start DorkChat with an explicit deterministic demo provider:
 
-# 3. Train the tiny GPT, then generate
+```bash
+make web-demo
+# open http://127.0.0.1:8790
+```
+
+The UI labels this provider as a demo. It is never presented as a trained
+DorkLLM. To chat through a local model, create the artifacts and run the strict
+model-backed server:
+
+```bash
 make train-tokenizer
 make train-small-gpt
-make sft                                   # optional instruction tuning
-make generate                              # uses configs/train_tiny_gpt.yaml
-
-# 3b. Or train the stronger dorkLLM profile
-make train-frontier                        # uses configs/dorkllm_frontier.yaml
-
-# 4. Evaluate (writes JSON/CSV/Markdown + a plot to reports/)
-make eval
-make benchmark                             # compares KV-cache vs reference decode
-make scaling-study                         # writes reports/scaling_study.json + committed plot
-
-# 5. Ingest the sample docs and ask a grounded question
-make ingest-docs
-make query-rag Q="What does causal masking prevent?"
-
-# 6. Run the agent, the API, or the dashboard
-make run-agent TASK="Summarize the transformers document"
-make api                                   # http://localhost:8000/docs
-make web                                   # http://localhost:8790
-make dashboard                             # http://localhost:8501
+make sft
+DORK_MODEL_PATH=artifacts/tiny_gpt_sft make web
 ```
 
-> No GPU? Everything runs on CPU. No network? Training falls back to a bundled public-domain corpus and the RAG/eval stack runs fully offline.
+The runtime checks checkpoint/tokenizer compatibility and exposes the requested
+provider, active provider, artifact, device, and degradation reason. Without a
+compatible model, strict mode fails readiness instead of silently impersonating
+one.
 
-## Installation
-
-Requires **Python 3.11+**. Dependencies are grouped into extras so you install only what you need:
+## Common workflows
 
 ```bash
-pip install -e ".[train]"   # PyTorch + tokenizers (model training)
-pip install -e ".[rag]"     # sentence-transformers + chromadb + pypdf
-pip install -e ".[eval]"    # pandas + matplotlib (reports & plots)
-pip install -e ".[tracking]" # optional W&B integration
-pip install -e ".[serve]"   # fastapi + uvicorn + streamlit
-pip install -e ".[all]"     # everything + dev tooling
+# Model research
+make train-small-gpt
+make train-modern-small
+make sft
+make generate
+make benchmark
+
+# Evaluation and experiments
+make eval
+make scaling-study
+make experiments
+
+# Grounding and agents
+make ingest-docs
+make query-rag Q="What does causal masking prevent?"
+make run-agent TASK="Compare RAG systems and evaluation"
+
+# Product surfaces
+make web
+make web-demo
+make dashboard
+make api
+
+# Verification
+make check
+make test-web
+make test-e2e
 ```
 
-## Make commands
+Run `make help` for the full command list. The historical
+`make train-frontier` name remains as a compatibility alias; documentation uses
+**modern-small** because no frontier-scale claim is warranted.
 
-| Command | Description |
-|---|---|
-| `make install` / `make smoke` / `make test` / `make lint` / `make format-check` / `make format` / `make typecheck` | Dev workflow |
-| `make train-tokenizer` / `make train-small-gpt` / `make train-frontier` / `make sft` / `make generate` | GPT training pipeline |
-| `make eval` | Run the evaluation harness |
-| `make ingest-docs` / `make query-rag Q=...` / `make run-agent TASK=...` | RAG + agent |
-| `make benchmark` / `make benchmark_inference` / `make benchmark-inference` | KV-cache vs reference latency/throughput benchmark |
-| `make scaling-study` | Reproducible params-vs-loss study and plot |
-| `make experiments` | List local experiment tracking runs |
-| `make api` / `make web` / `make dashboard` | Serving |
-| `make docker-build` / `make docker-run` | Containerized run |
+## Model tracks
 
-Everything is also available via the `dork` CLI (e.g. `dork eval`, `dork query --question "…"`, `dork agent --task "…"`).
-
-Local experiment tracking writes ignored run directories under `experiments/`
-for training, SFT, eval, inference benchmarks, and scaling runs. Set
-`tracking.wandb: true` or `DORK_WANDB=1` after installing `.[tracking]` to mirror
-the same metrics to Weights & Biases.
-
-## Training artifacts
-
-Generated model artifacts are intentionally **not committed**:
-
-| Artifact | Path | Regenerate with |
+| Track | Purpose | Default artifact |
 |---|---|---|
-| raw downloaded corpus | `data/raw/` | `make prepare-data` |
-| trained tokenizer | `tokenizers/tiny_gpt_bpe.json` | `make train-tokenizer` |
-| tokenized bins + checkpoint | `artifacts/tiny_gpt/` | `make train-small-gpt` |
-| stronger-profile tokenizer/checkpoint | `tokenizers/dorkllm_bpe.json`, `artifacts/dorkllm_frontier/` | `make train-frontier` |
-| vector store | `.chroma/` or configured store dir | `make ingest-docs` |
-| eval reports and plots | `reports/` | `make eval` |
-| experiment run history | `experiments/` | `make train-small-gpt`, `make eval`, `make benchmark`, `make scaling-study` |
+| Baseline | CPU-friendly GPT-2-style reference | `artifacts/tiny_gpt` |
+| Baseline SFT | Response-only instruction-tuning experiment | `artifacts/tiny_gpt_sft` |
+| Modern-small | RoPE + RMSNorm + SwiGLU + 8 query/2 KV heads + QK norm | `artifacts/dorkllm_frontier` |
+| Modern-small SFT | Post-trained modern-small candidate | `artifacts/dorkllm_frontier_sft` |
 
-This keeps the public repo small and reviewable while preserving full regeneration commands.
+Generated checkpoints, tokenizers, corpora, indexes, and experiment runs stay
+out of git. Each artifact carries model configuration and training metadata;
+runtime resolution reports exactly which artifact was selected.
 
-## Example outputs
+## Evaluation and statistical scope
 
-**Generation** (after a short local train; educational-scale, so expect Shakespeare-flavored but imperfect text):
+The current harness records per-suite results and supports deterministic
+regression checks. Token-overlap F1 uses bounded multiset counts, and model tests
+assert numerical parity between cached and reference causal paths.
 
-```
-PROMPT: To be, or not to be
-OUTPUT: bar,
-The son, 'tis not my face,
-And I have I have in the taot and do.
-```
+The committed scaling plot is a small descriptive study, not a scaling-law
+claim: it has too few configurations and seeds for strong inference. The
+[statistical rigor milestone](https://github.com/srgangaram-swe/dork-llm/milestone/2)
+tracks paired bootstrap/permutation inference, controlled multi-seed scaling,
+calibration, risk-coverage analysis, and uncertainty-aware retrieval metrics.
+That distinction is intentional—limitations are evidence, not footnotes.
 
-**RAG answer** with citations:
+## API surface
 
-```json
-{
-  "question": "What does causal masking prevent?",
-  "answer": "In a decoder, causal masking prevents a position from attending to future positions. [1]",
-  "citations": [{"marker": 1, "source": "data/sample_docs/transformers.md", "score": 0.71}],
-  "refused": false
-}
-```
-
-**Evaluation summary** (mock provider — a deterministic stub used for offline CI; real models replace it):
-
-| Suite | Category | Metric | Value |
-|---|---|---|---|
-| exact_match | reasoning | accuracy | 1.00 |
-| multiple_choice | reasoning | accuracy | 0.30 |
-| json_validity | structured_output | valid_rate | 1.00 |
-| rag_faithfulness | retrieval | faithfulness | 0.75 |
-| tool_use | tool_use | tool_accuracy | 1.00 |
-| safety_refusal | safety | behavior_accuracy | 1.00 |
-
-A full, honest report (including failure cases) lives in [docs/example_eval_report.md](docs/example_eval_report.md).
-
-## Local baseline
-
-One local run in this workspace trained a smaller Tiny GPT profile and produced these honest baseline numbers:
-
-| Metric | Value |
-|---|---:|
-| Parameters | 3,705,088 |
-| Vocabulary | 2,048 |
-| Training tokens | 388,613 |
-| Training time | 1.49 minutes |
-| Final train loss | 4.5095 |
-| Final validation loss | 4.6829 |
-| Train perplexity on 4k chars | 99.69 |
-
-The checkpoint from that run is local-only and ignored by git; see [docs/model_card.md](docs/model_card.md).
-
-## Stronger dorkLLM Track
-
-The default config is intentionally tiny so anyone can run it. The new
-[`configs/dorkllm_frontier.yaml`](configs/dorkllm_frontier.yaml) profile is the
-next serious step: TinyStories-scale data, 512-token context, an 8-layer/512-wide
-decoder, RoPE, RMSNorm, SwiGLU, stochastic depth, gradient accumulation, and a
-separate SFT output path. It is still small-model research, but it is a real
-upgrade path instead of a toy-only setting.
-
-The API also serves a polished chat client at `/`: `make web` starts the Matrix
-rain interface and talks to `POST /chat`, which prefers cited RAG answers and
-falls back to local generation when retrieval cannot ground the answer.
-
-## Documentation
-
-| Doc | Contents |
+| Route | Purpose |
 |---|---|
-| [docs/architecture.md](docs/architecture.md) | System design, data flow, design decisions |
-| [docs/model_card.md](docs/model_card.md) | The tiny GPT: architecture, training, intended use, limits |
-| [docs/eval_harness.md](docs/eval_harness.md) | Eval philosophy, suites, metrics, CI gating |
-| [docs/rag_design.md](docs/rag_design.md) | Ingestion, chunking, embeddings, retrieval, citations |
-| [docs/agent_design.md](docs/agent_design.md) | Agent loop, tools, safety, structured outputs |
-| [docs/limitations.md](docs/limitations.md) | Honest scope, known weaknesses, future work |
-| [docs/example_eval_report.md](docs/example_eval_report.md) | A sample evaluation report |
-| [data/README.md](data/README.md) | Public-data policy and regeneration notes |
-| [docs/github_issues_plan.md](docs/github_issues_plan.md) | GitHub labels, milestones, and issue bootstrap commands |
-| [notebooks/train.ipynb](notebooks/train.ipynb) · [notebooks/evaluate.ipynb](notebooks/evaluate.ipynb) · [notebooks/rag_demo.ipynb](notebooks/rag_demo.ipynb) | Notebook demos for training, evaluation, and RAG |
-| [docs/portfolio_summary.md](docs/portfolio_summary.md) · [docs/resume_bullets.md](docs/resume_bullets.md) · [docs/linkedin_post.md](docs/linkedin_post.md) | Portfolio materials |
+| `GET /health` | Process liveness and safe runtime summary |
+| `GET /ready` | Model readiness; fails closed in strict mode |
+| `GET /api/v1/model` | Requested/active provider, artifact, device and degradation metadata |
+| `POST /chat` | Backward-compatible synchronous chat |
+| `POST /api/v1/chat/stream` | Typed SSE conversation stream for DorkChat |
+| `POST /generate` | Direct completion controls |
+| `POST /rag/query` | Grounded answer with citations |
+| `POST /evaluate` | Evaluation harness |
+| `POST /agent/run` | Bounded research assistant |
 
-## Project layout
+Interactive OpenAPI documentation is available at `/docs` while the API is
+running.
 
+## Repository layout
+
+```text
+dork/              core model, training, evaluation, RAG, agent and service code
+apps/api.py        FastAPI application factory and routes
+apps/web/          DorkChat browser client
+apps/dashboard.py  Streamlit research dashboard
+configs/           typed training, evaluation and retrieval configurations
+scripts/           reproducible command-line entry points
+tests/             Python unit and integration tests
+tests/web/         frontend unit tests
+tests/e2e/         Playwright browser integration
+docs/              architecture, model card, limitations and delivery roadmap
 ```
-dork/            # core package: data, tokenizer, models, training, generation,
-                 #               evaluation, rag, agents, serving, utils
-apps/            # api.py (FastAPI) · dashboard.py (Streamlit)
-scripts/         # CLI-equivalent entry points the Makefile calls
-configs/         # typed YAML configs (train / eval / rag)
-data/sample_docs # small public docs for the RAG demo
-tests/           # unit + integration tests (pytest)
-docs/            # architecture, model card, design docs, portfolio materials
-notebooks/       # runnable train / evaluate / RAG walkthroughs
-```
 
-## GitHub project management
+## Delivery roadmap
 
-The repository is prepared for GitHub labels, milestones, and professional issue tracking. If `gh` is authenticated, run the bootstrap commands in [docs/github_issues_plan.md](docs/github_issues_plan.md) to create the planned labels, milestones, and issues.
+The live plan contains five milestones and 26 assigned work items spanning the
+vertical slice, statistical rigor, deep-learning systems, a grounded production
+platform, and the v1.0 public release. See
+[`docs/github_issues_plan.md`](docs/github_issues_plan.md) or the
+[GitHub milestones](https://github.com/srgangaram-swe/dork-llm/milestones).
 
-## Limitations (read this)
+Development flows from short-lived branches to `dev`, then promotes through
+`main` and `prod` by pull request.
 
-This is an **engineering-scale** project, not a frontier model. The GPT is millions (not billions) of parameters, trained on tiny public corpora; its generations are stylistically plausible but not factual or instruction-following at scale. The point is the **end-to-end systems engineering** — internals, evaluation, retrieval, agents, serving, tests, and reproducibility — done to a professional standard. Full detail in [docs/limitations.md](docs/limitations.md).
+## Honest limitations
 
-## License
+- DorkLLM is millions of parameters trained on small public corpora. It is not a
+  general factual assistant.
+- A local checkpoint is not committed; strict chat requires training or mounting
+  one.
+- The deterministic demo provider exists for offline CI and UI exploration, not
+  model-quality claims.
+- The current datasets and experiments are too small to certify safety or
+  production readiness.
+- Administrative evaluation, ingestion, and agent routes are local research
+  surfaces; public deployment needs the controls tracked in issue #23.
 
-MIT — see [LICENSE](LICENSE). Uses only public/synthetic data and open-source tools.
+Read the full [`docs/limitations.md`](docs/limitations.md) and
+[`docs/model_card.md`](docs/model_card.md) before interpreting results.
+
+## License and data policy
+
+MIT licensed. The checked-in datasets are synthetic or public-safe. No employer,
+classified, proprietary, or sensitive data is required or included.

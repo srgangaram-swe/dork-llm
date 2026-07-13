@@ -1,292 +1,72 @@
-# GitHub Issues Plan
+# AxiomStack delivery roadmap
 
-Prepared on 2026-07-02 for:
+This document mirrors the live GitHub roadmap for
+[`srgangaram-swe/dork-llm`](https://github.com/srgangaram-swe/dork-llm). The
+GitHub milestones and issues are authoritative; this file explains the intent
+and dependency order without embedding a script that can create duplicates.
 
-- Remote: `https://github.com/srgangaram-swe/dork-llm`
-- Default branch: `main`
-- Repository: `srgangaram-swe/dork-llm`
+## Product names
 
-This file provides a ready-to-run bootstrap script for labels, milestones, and
-issues. Run it after:
+- **AxiomStack** is the platform and portfolio project.
+- **DorkLLM** is the from-scratch decoder model family.
+- **DorkChat** is the browser research cockpit.
+- **Proof. Probability. Production.** is the project thesis: mathematical
+  correctness, statistically defensible evidence, and production-quality
+  delivery belong in the same system.
 
-```bash
-gh auth login
-gh auth status
+## Branch and release flow
+
+```text
+short-lived branch -> dev -> main -> prod
 ```
 
-## Bootstrap Commands
+- `dev` is the integration branch and the target for feature pull requests.
+- `main` is the stable public portfolio branch.
+- `prod` is the deployed release pointer.
+- Promotions use pull requests in that order. They are never cherry-picked.
+- A short-lived branch is deleted only after its tip is verified as an ancestor
+  of `dev`.
 
-Copy this script into your shell from the repository root. It is idempotent for
-labels and creates the planned milestones/issues.
+## v0.2 — DorkChat vertical slice
 
-```bash
-set -euo pipefail
+Due 2026-07-24. This is the current sprint. Its definition of done is a
+truthful, tested browser-to-model path with the correctness defects found in the
+initial audit repaired.
 
-REPO="srgangaram-swe/dork-llm"
+- [#2 — Correct causal SFT, bounded token F1, and cached-attention invariants](https://github.com/srgangaram-swe/dork-llm/issues/2)
+- [#3 — Modernize DorkLLM with grouped-query attention and QK normalization](https://github.com/srgangaram-swe/dork-llm/issues/3)
+- [#4 — Add explicit model runtime resolution and truthful readiness metadata](https://github.com/srgangaram-swe/dork-llm/issues/4)
+- [#5 — Ship a bounded streaming DorkChat API contract](https://github.com/srgangaram-swe/dork-llm/issues/5)
+- [#6 — Build the accessible AxiomStack DorkChat research cockpit](https://github.com/srgangaram-swe/dork-llm/issues/6)
+- [#7 — Close full-stack CI, container, documentation, and branch-governance gaps](https://github.com/srgangaram-swe/dork-llm/issues/7)
 
-gh label create architecture -R "$REPO" --color "5319e7" --description "Architecture and system design" --force
-gh label create data -R "$REPO" --color "0e8a16" --description "Datasets, ingestion, and preprocessing" --force
-gh label create tokenizer -R "$REPO" --color "1d76db" --description "Tokenizer training and loading" --force
-gh label create model -R "$REPO" --color "0052cc" --description "Model architecture and inference" --force
-gh label create inference -R "$REPO" --color "c5def5" --description "Generation performance and serving-time model behavior" --force
-gh label create training -R "$REPO" --color "006b75" --description "Training loop, optimization, and checkpoints" --force
-gh label create post-training -R "$REPO" --color "5319e7" --description "SFT, instruction tuning, and post-training workflows" --force
-gh label create evaluation -R "$REPO" --color "fbca04" --description "Evaluation suites, metrics, and reports" --force
-gh label create experiments -R "$REPO" --color "d4c5f9" --description "Scaling studies, ablations, benchmarks, and tracking" --force
-gh label create rag -R "$REPO" --color "0e8a16" --description "Retrieval augmented generation" --force
-gh label create agents -R "$REPO" --color "bfdadc" --description "Agent tools and orchestration" --force
-gh label create api -R "$REPO" --color "1d76db" --description "FastAPI service" --force
-gh label create dashboard -R "$REPO" --color "c2e0c6" --description "Streamlit dashboard" --force
-gh label create notebooks -R "$REPO" --color "fef2c0" --description "Jupyter notebooks and interactive walkthroughs" --force
-gh label create testing -R "$REPO" --color "d4c5f9" --description "Tests and smoke coverage" --force
-gh label create docs -R "$REPO" --color "0075ca" --description "Documentation" --force
-gh label create devops -R "$REPO" --color "f9d0c4" --description "CI, Docker, tooling, and release workflows" --force
-gh label create community -R "$REPO" --color "cfd3d7" --description "Contributing, security, citation, and issue templates" --force
-gh label create portfolio -R "$REPO" --color "b60205" --description "Portfolio, resume, and launch polish" --force
-gh label create enhancement -R "$REPO" --color "a2eeef" --description "New feature or improvement" --force
-gh label create bug -R "$REPO" --color "d73a4a" --description "Bug or regression" --force
+## v0.3 — Statistical rigor and uncertainty
 
-gh api -X POST "repos/$REPO/milestones" -f title="Milestone 1: Project Architecture and Tooling" -f description="Repository structure, tooling, configs, Docker, and CI." || true
-gh api -X POST "repos/$REPO/milestones" -f title="Milestone 2: Tiny GPT Training Pipeline" -f description="Tokenizer, dataset preparation, transformer model, training, and generation." || true
-gh api -X POST "repos/$REPO/milestones" -f title="Milestone 3: Evaluation Harness" -f description="Reusable evaluation suites, reports, gates, and comparisons." || true
-gh api -X POST "repos/$REPO/milestones" -f title="Milestone 4: RAG and Agentic Research Assistant" -f description="Document ingestion, retrieval, citations, and tools." || true
-gh api -X POST "repos/$REPO/milestones" -f title="Milestone 5: API, Dashboard, and Demo" -f description="FastAPI, Streamlit, smoke demos, and benchmarks." || true
-gh api -X POST "repos/$REPO/milestones" -f title="Milestone 6: Documentation and Portfolio Polish" -f description="README, design docs, model card, limitations, resume, and LinkedIn materials." || true
+Due 2026-08-21. This phase adds reusable paired inference, controlled
+multi-seed studies, calibration and selective prediction, uncertainty-aware IR
+evaluation, and an accessible experiment comparison surface. See
+[issues #8–#12](https://github.com/srgangaram-swe/dork-llm/issues?q=is%3Aissue%20milestone%3A%22AxiomStack%20v0.3%3A%20Statistical%20Rigor%20%26%20Uncertainty%22).
 
-issue () {
-  local title="$1"
-  local milestone="$2"
-  local labels="$3"
-  local goal="$4"
-  local files="$5"
-  local acceptance="$6"
+## v0.4 — Deep learning systems
 
-  gh issue create -R "$REPO" \
-    --title "$title" \
-    --milestone "$milestone" \
-    --label "$labels" \
-    --body "$(cat <<BODY
-## Goal
-$goal
+Due 2026-09-25. This phase covers compute-matched architecture ablations, exact
+resume and multi-device training, LoRA, preference optimization, and measured
+quantization/distillation tradeoffs. See
+[issues #13–#17](https://github.com/srgangaram-swe/dork-llm/issues?q=is%3Aissue%20milestone%3A%22AxiomStack%20v0.4%3A%20Deep%20Learning%20Systems%22).
 
-## Implementation Notes
-Keep changes modular, typed, tested, and local-first. Avoid large generated artifacts and sensitive data.
+## v0.5 — Grounded production platform
 
-## Relevant Files
-$files
+Due 2026-10-30. This phase evolves retrieval, agents, persistence,
+observability, security, supply-chain controls, and deployment. See
+[issues #18–#23](https://github.com/srgangaram-swe/dork-llm/issues?q=is%3Aissue%20milestone%3A%22AxiomStack%20v0.5%3A%20Grounded%20Production%20Platform%22).
 
-## Acceptance Criteria
-$acceptance
-BODY
-)"
-}
+## v1.0 — Reproducible public release
 
-issue "Scaffold Dork LLM repository structure" \
-  "Milestone 1: Project Architecture and Tooling" \
-  "architecture,portfolio,enhancement" \
-  "Create a coherent package, apps, scripts, configs, tests, docs, and sample data layout." \
-  "dork/, apps/, scripts/, configs/, tests/, docs/, data/sample_docs/" \
-  "- Package imports cleanly\n- CLI/scripts share orchestration\n- README explains the system layout"
+Due 2026-12-04. The release phase publishes reconstruction manifests, model and
+data cards, a research-style benchmark report, the portfolio case study, and a
+provenance-backed release. See
+[issues #24–#27](https://github.com/srgangaram-swe/dork-llm/issues?q=is%3Aissue%20milestone%3A%22AxiomStack%20v1.0%3A%20Reproducible%20Public%20Release%22).
 
-issue "Add development tooling, Makefile, Docker, and CI" \
-  "Milestone 1: Project Architecture and Tooling" \
-  "devops,testing,enhancement" \
-  "Provide reproducible local and CI workflows for install, lint, typecheck, tests, smoke runs, and Docker." \
-  "pyproject.toml, Makefile, Dockerfile, .pre-commit-config.yaml, .github/workflows/ci.yml" \
-  "- make help lists expected commands\n- CI runs lint, mypy, tests, and smoke train\n- Docker image runs the API"
-
-issue "Implement dataset preparation pipeline" \
-  "Milestone 2: Tiny GPT Training Pipeline" \
-  "data,training,enhancement" \
-  "Prepare public/local text corpora with an offline fallback and no sensitive data." \
-  "dork/data/datasets.py, scripts/prepare_dataset.py, data/README.md" \
-  "- Tiny Shakespeare downloads when available\n- fallback corpus works offline\n- generated raw data stays ignored"
-
-issue "Implement tokenizer training and loading utilities" \
-  "Milestone 2: Tiny GPT Training Pipeline" \
-  "tokenizer,training,enhancement" \
-  "Support byte-level BPE and character tokenizers behind one interface." \
-  "dork/tokenizer/, scripts/train_tokenizer.py" \
-  "- BPE trains with tokenizers extra\n- char tokenizer works without heavy deps\n- save/load round trips pass tests"
-
-issue "Implement decoder-only transformer architecture in PyTorch" \
-  "Milestone 2: Tiny GPT Training Pipeline" \
-  "model,training,enhancement" \
-  "Build a compact GPT-style model from explicit PyTorch components." \
-  "dork/models/layers.py, dork/models/tiny_gpt.py" \
-  "- forward pass returns logits/loss\n- causal masking prevents future attention\n- positional variants are tested"
-
-issue "Implement training loop with checkpointing and validation" \
-  "Milestone 2: Tiny GPT Training Pipeline" \
-  "training,model,enhancement" \
-  "Train Tiny GPT with validation, LR scheduling, gradient clipping, and checkpoints." \
-  "dork/training/, scripts/train_tiny_gpt.py" \
-  "- smoke training writes a reloadable checkpoint\n- training history records train/val loss\n- config controls runtime"
-
-issue "Implement text generation with top-k, top-p, and temperature sampling" \
-  "Milestone 2: Tiny GPT Training Pipeline" \
-  "model,training,enhancement" \
-  "Generate continuations with greedy, temperature, top-k, and top-p controls." \
-  "dork/generation/, scripts/generate_text.py, dork/serving/service.py" \
-  "- sampler functions are unit-tested\n- CLI/API pass sampling controls through\n- trained model generates text locally"
-
-issue "Add KV-cache fast inference and speedup benchmark" \
-  "Milestone 2: Tiny GPT Training Pipeline" \
-  "model,inference,experiments,enhancement" \
-  "Implement incremental key/value caching for generation and compare it against the reference decode path." \
-  "dork/models/layers.py, dork/models/tiny_gpt.py, dork/generation/generator.py, scripts/benchmark_inference.py, dork/pipelines.py" \
-  "- cached greedy decoding matches reference output\n- benchmark reports KV-cache and reference latency\n- README/Makefile document the benchmark command"
-
-issue "Add supervised fine-tuning post-training path" \
-  "Milestone 2: Tiny GPT Training Pipeline" \
-  "training,post-training,model,enhancement" \
-  "Instruction-tune the base Tiny GPT with prompt formatting, response-only loss masking, and before/after response perplexity." \
-  "dork/training/sft.py, dork/data/instructions.py, scripts/finetune_sft.py, dork/pipelines.py, configs/train_tiny_gpt.yaml" \
-  "- make sft writes a separate SFT checkpoint\n- prompt tokens are masked from loss\n- tests show response loss decreases"
-
-issue "Add perplexity and generation-quality evaluation" \
-  "Milestone 3: Evaluation Harness" \
-  "evaluation,model,enhancement" \
-  "Measure language-model quality with perplexity and qualitative sample outputs." \
-  "dork/evaluation/evaluators.py, dork/generation/generator.py, docs/example_eval_report.md" \
-  "- perplexity suite runs against compatible providers\n- report captures failures\n- sample generations are documented honestly"
-
-issue "Build reusable LLM evaluation harness" \
-  "Milestone 3: Evaluation Harness" \
-  "evaluation,testing,enhancement" \
-  "Create a registry-based harness that runs suites, aggregates metrics, and writes reports." \
-  "dork/evaluation/harness.py, dork/evaluation/base.py, dork/evaluation/report.py" \
-  "- JSON/CSV/Markdown reports are written\n- thresholds produce gate checks\n- tests cover harness output"
-
-issue "Add structured-output and JSON-validity evaluations" \
-  "Milestone 3: Evaluation Harness" \
-  "evaluation,enhancement" \
-  "Evaluate parseable JSON, required-key coverage, and schema pass rate." \
-  "dork/evaluation/evaluators.py, dork/evaluation/datasets/json_tasks.jsonl" \
-  "- JSON validity and key coverage metrics are reported\n- invalid outputs become failed cases\n- dataset is synthetic/public-safe"
-
-issue "Add RAG retrieval faithfulness and citation checks" \
-  "Milestone 3: Evaluation Harness" \
-  "evaluation,rag,enhancement" \
-  "Measure citation coverage, grounding overlap, and refusal on unanswerable questions." \
-  "dork/evaluation/evaluators.py, dork/evaluation/datasets/rag_faithfulness.jsonl" \
-  "- answerable cases require valid citations\n- unanswerable cases require refusal\n- report includes failure examples"
-
-issue "Implement document ingestion and chunking" \
-  "Milestone 4: RAG and Agentic Research Assistant" \
-  "rag,data,enhancement" \
-  "Load Markdown/text/PDF documents and chunk them with source offsets." \
-  "dork/rag/loaders.py, dork/rag/chunking.py, data/sample_docs/" \
-  "- chunks retain source and character offsets\n- multiple chunking strategies are tested\n- sample docs ingest offline"
-
-issue "Implement embedding and local vector database indexing" \
-  "Milestone 4: RAG and Agentic Research Assistant" \
-  "rag,data,enhancement" \
-  "Index chunks with deterministic hash embeddings and optional heavier backends." \
-  "dork/rag/embeddings.py, dork/rag/vectorstore.py" \
-  "- hash embeddings are deterministic\n- memory store returns sorted hits\n- generated vector stores are ignored"
-
-issue "Implement source-grounded RAG query pipeline" \
-  "Milestone 4: RAG and Agentic Research Assistant" \
-  "rag,evaluation,enhancement" \
-  "Retrieve, rerank, answer with citations, and refuse without evidence." \
-  "dork/rag/pipeline.py, scripts/query_rag.py" \
-  "- answers map citation markers to source chunks\n- min-score threshold can force refusal\n- tests cover cited answer and refusal"
-
-issue "Implement agentic research assistant tools" \
-  "Milestone 4: RAG and Agentic Research Assistant" \
-  "agents,rag,enhancement" \
-  "Add bounded agent workflows for search, summarize, compare, extract claims, plan experiments, and calculate." \
-  "dork/agents/research_agent.py, dork/agents/tools.py, scripts/run_agent.py" \
-  "- intent routing is deterministic and tested\n- tool steps are recorded\n- structured outputs and citations are returned"
-
-issue "Add FastAPI service endpoints" \
-  "Milestone 5: API, Dashboard, and Demo" \
-  "api,enhancement" \
-  "Serve generation, evaluation, RAG, agent, health, and metrics endpoints." \
-  "apps/api.py, dork/serving/" \
-  "- endpoints return pydantic responses\n- service falls back to mock model\n- API smoke tests pass"
-
-issue "Add Streamlit dashboard" \
-  "Milestone 5: API, Dashboard, and Demo" \
-  "dashboard,api,enhancement" \
-  "Provide a usable UI for generation, evaluation, RAG, agent, and metrics workflows." \
-  "apps/dashboard.py" \
-  "- dashboard has tabs for core workflows\n- RAG citations are visible\n- metrics render without a separate API server"
-
-issue "Add benchmark scripts for latency and throughput" \
-  "Milestone 5: API, Dashboard, and Demo" \
-  "evaluation,devops,enhancement" \
-  "Measure local generation latency and throughput for the trained Tiny GPT." \
-  "scripts/benchmark_inference.py, dork/pipelines.py, Makefile" \
-  "- make benchmark and make benchmark_inference work\n- output includes mean, p50, p95, and tokens/sec\n- command is documented"
-
-issue "Add reproducible scaling and ablation study" \
-  "Milestone 5: API, Dashboard, and Demo" \
-  "experiments,training,evaluation,enhancement" \
-  "Train several Tiny GPT sizes under one controlled setup, fit a simple params-vs-loss trend, and commit the public-facing plot." \
-  "scripts/scaling_study.py, docs/assets/scaling_study.png, reports/scaling_study.json, README.md" \
-  "- script writes JSON metrics and a plot\n- committed plot is regenerated from the script\n- docs state the study is educational-scale"
-
-issue "Add lightweight local and optional W&B experiment tracking" \
-  "Milestone 5: API, Dashboard, and Demo" \
-  "experiments,devops,training,enhancement" \
-  "Write local JSON metadata, scalar metrics, and summaries for train/SFT/eval/benchmark/scaling runs, with optional W&B mirroring." \
-  "dork/utils/tracking.py, dork/pipelines.py, scripts/scaling_study.py, configs/train_tiny_gpt.yaml, configs/eval_default.yaml" \
-  "- local runs write metadata.json, metrics.jsonl, and summary.json\n- W&B import is optional and opt-in\n- tests cover local tracking output"
-
-issue "Add unit tests and integration tests" \
-  "Milestone 5: API, Dashboard, and Demo" \
-  "testing,enhancement" \
-  "Cover model, tokenizer, data, eval, RAG, agent, API, and smoke workflows." \
-  "tests/, scripts/smoke_test.py" \
-  "- pytest passes locally\n- slow training test is marked\n- CI runs a smoke training path"
-
-issue "Write architecture, model card, and design docs" \
-  "Milestone 6: Documentation and Portfolio Polish" \
-  "docs,architecture,portfolio" \
-  "Document system architecture, model card, evaluation design, RAG design, agent design, and limitations." \
-  "docs/" \
-  "- README links resolve\n- limitations are explicit\n- docs are suitable for public review"
-
-issue "Write README with quickstart and examples" \
-  "Milestone 6: Documentation and Portfolio Polish" \
-  "docs,portfolio" \
-  "Create a comprehensive README with architecture diagram, quickstart, commands, outputs, docs, and limitations." \
-  "README.md" \
-  "- quickstart runs locally\n- examples are honest\n- command list matches Makefile"
-
-issue "Create train, evaluate, and RAG demo notebooks" \
-  "Milestone 6: Documentation and Portfolio Polish" \
-  "notebooks,docs,portfolio,enhancement" \
-  "Provide three runnable Jupyter notebooks that demonstrate Tiny GPT training, evaluation, and cited RAG over sample docs." \
-  "notebooks/train.ipynb, notebooks/evaluate.ipynb, notebooks/rag_demo.ipynb, README.md" \
-  "- notebooks run from repo root or notebooks directory\n- demos use CPU/offline-friendly defaults\n- README links all three notebooks"
-
-issue "Generate resume bullets, LinkedIn post, and portfolio summary" \
-  "Milestone 6: Documentation and Portfolio Polish" \
-  "portfolio,docs" \
-  "Prepare public portfolio materials for LLM/AI systems roles." \
-  "docs/resume_bullets.md, docs/linkedin_post.md, docs/portfolio_summary.md" \
-  "- materials are technical and non-cringey\n- bullets target multiple role families\n- scale claims are honest"
-
-issue "Polish repo for public portfolio launch" \
-  "Milestone 6: Documentation and Portfolio Polish" \
-  "portfolio,devops,docs" \
-  "Finalize ignored artifacts, validation checks, GitHub metadata, and launch instructions." \
-  ".gitignore, README.md, docs/github_issues_plan.md" \
-  "- no large generated artifacts are staged\n- validation commands pass\n- GitHub issue plan is ready to run"
-
-issue "Add repository community health files" \
-  "Milestone 6: Documentation and Portfolio Polish" \
-  "community,docs,devops" \
-  "Add contribution, security, citation, conduct, issue-template, and PR-template files appropriate for a public portfolio repository." \
-  "CONTRIBUTING.md, SECURITY.md, CITATION.cff, CODE_OF_CONDUCT.md, .github/ISSUE_TEMPLATE/, .github/PULL_REQUEST_TEMPLATE.md" \
-  "- GitHub community profile files are present\n- templates collect actionable reproduction context\n- docs explain security and data-handling boundaries"
-```
-
-## Current Completion Mapping
-
-Most implementation issues above are complete in the initial codebase. Keep the
-issues open if you want them to preserve the professional project history, then
-close them as you verify each milestone on GitHub.
+Every issue is assigned to `srgangaram-swe` and carries type, area, priority,
+and effort labels. Acceptance criteria live on the issue so implementation and
+review use the same definition of done.

@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────────
-# Dork LLM — Evaluation harness configuration.
+# AxiomStack — evaluation harness configuration.
 #
 # The harness can evaluate (a) the locally trained tiny GPT, (b) Hugging Face
 # open models, or (c) a deterministic mock model for offline CI. Suites are

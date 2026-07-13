@@ -26,6 +26,12 @@ ENV/
 coverage.xml
 htmlcov/
 
+# Frontend dependencies and browser-test output
+node_modules/
+test-results/
+playwright-report/
+blob-report/
+
 # Jupyter
 .ipynb_checkpoints/
 

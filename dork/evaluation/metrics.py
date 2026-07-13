@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import string
+from collections import Counter
 from typing import Any
 
 _ARTICLES = re.compile(r"\b(a|an|the)\b", re.IGNORECASE)
@@ -35,11 +36,10 @@ def token_f1(pred: str, gold: str) -> float:
     g_tokens = normalize_text(gold).split()
     if not p_tokens or not g_tokens:
         return float(p_tokens == g_tokens)
-    common: dict[str, int] = {}
-    for t in p_tokens:
-        if t in g_tokens:
-            common[t] = common.get(t, 0) + 1
-    num_same = sum(common.values())
+    # Multiset intersection caps each repeated token at its count in the other
+    # sequence. A membership-only count can produce recall > 1 and therefore an
+    # invalid F1 score when the prediction repeats a gold token.
+    num_same = sum((Counter(p_tokens) & Counter(g_tokens)).values())
     if num_same == 0:
         return 0.0
     precision = num_same / len(p_tokens)

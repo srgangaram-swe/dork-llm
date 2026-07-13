@@ -9,8 +9,8 @@ ideas that make SFT different from pretraining are implemented explicitly:
    ignore index (-1) so the loss is computed on the *response* tokens only — the
    model is trained to produce answers, not to re-predict the prompt.
 
-At educational scale this demonstrates the mechanism and the measurable effect
-(held-out response perplexity drops), not a large capability gain.
+At educational scale this demonstrates the mechanism and produces measurements
+for a fixed split; it does not imply a large capability gain.
 """
 
 from __future__ import annotations
@@ -54,25 +54,45 @@ def build_sft_dataset(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Tokenize instruction/response pairs into padded ``(input_ids, labels)``.
 
-    Labels mask the prompt and padding with :data:`IGNORE_INDEX` so cross-entropy
-    is only taken over the response tokens (plus the end-of-text token).
+    Inputs and labels are offset by one token for causal next-token prediction.
+    Labels whose *target* belongs to the prompt, plus padding, are masked with
+    :data:`IGNORE_INDEX`, so cross-entropy is taken only over response tokens and
+    the end-of-text token. For example, the first response token is supervised by
+    the final prompt position; a response token is never used as its own target.
 
     Returns:
         ``(X, Y)`` int64 tensors of shape ``(N, T)`` where ``T`` is the longest
-        example (capped at ``block_size``).
+        causal input sequence (capped at ``block_size``).
     """
+    if not pairs:
+        raise ValueError("SFT dataset requires at least one instruction/response pair.")
+    if block_size < 1:
+        raise ValueError("block_size must be positive.")
+
     eot = _eot_id(tokenizer)
     rows: list[tuple[list[int], list[int]]] = []
     max_len = 1
     for pair in pairs:
         prompt_ids = tokenizer.encode(format_prompt(pair["instruction"]))
         resp_ids = [*tokenizer.encode(pair["response"]), eot]
-        ids = (prompt_ids + resp_ids)[:block_size]
-        n_prompt = min(len(prompt_ids), len(ids))
-        labels = [IGNORE_INDEX] * n_prompt + resp_ids
-        labels = labels[: len(ids)]
-        rows.append((ids, labels))
-        max_len = max(max_len, len(ids))
+        # A causal sequence of block_size inputs needs at most block_size + 1
+        # tokens before shifting into x[:-1] and y[1:]. Prioritize response
+        # supervision when an example is too long: cap the response, then retain
+        # the prompt tail containing the response delimiter and latest instruction
+        # context. This avoids silently creating all-ignored training examples.
+        response = resp_ids if len(resp_ids) <= block_size else [*resp_ids[: block_size - 1], eot]
+        prompt_budget = block_size + 1 - len(response)
+        prompt = prompt_ids[-prompt_budget:]
+        sequence = prompt + response
+
+        inputs = sequence[:-1]
+        labels = sequence[1:]
+        # labels[i] predicts sequence[i + 1]. Mask targets strictly before the
+        # first response token at absolute position len(prompt).
+        masked_prompt_targets = min(max(len(prompt) - 1, 0), len(labels))
+        labels[:masked_prompt_targets] = [IGNORE_INDEX] * masked_prompt_targets
+        rows.append((inputs, labels))
+        max_len = max(max_len, len(inputs))
 
     x = torch.full((len(rows), max_len), pad_id, dtype=torch.long)
     y = torch.full((len(rows), max_len), IGNORE_INDEX, dtype=torch.long)

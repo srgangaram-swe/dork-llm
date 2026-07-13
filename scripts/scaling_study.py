@@ -172,7 +172,7 @@ def _plot(runs: list[dict], exponent: float, path: str) -> None:
     ax.set_xscale("log")
     ax.set_xlabel("parameters (log scale)")
     ax.set_ylabel("validation loss")
-    ax.set_title(f"Dork LLM scaling trend (fitted exponent b={exponent:.3f})")
+    ax.set_title(f"AxiomStack descriptive scaling trend (fitted exponent b={exponent:.3f})")
     ax.grid(True, which="both", ls=":", alpha=0.4)
     fig.tight_layout()
     out = resolve_path(path, create_parent=True)

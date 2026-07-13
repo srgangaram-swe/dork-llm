@@ -1,33 +1,51 @@
 # syntax=docker/dockerfile:1
-# ── Dork LLM reproducible runtime ────────────────────────────────────────
-# Builds a CPU-only image that can train the tiny GPT, run evals, serve the
-# API, and host the dashboard. Kept slim; heavy GPU stacks are out of scope.
-FROM python:3.11-slim AS base
+# AxiomStack CPU runtime. Local checkpoints are mounted at runtime, never copied
+# from a developer workstation into the image.
+FROM python:3.12-slim AS builder
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    VIRTUAL_ENV=/opt/venv \
+    PATH="/opt/venv/bin:$PATH"
 
-# System deps: build tools for native wheels, git for datasets/tokenizers.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential git curl && \
+    build-essential git && \
     rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+RUN python -m venv "$VIRTUAL_ENV"
 
-# Install CPU-only torch first to avoid pulling CUDA wheels.
+# Install CPU-only PyTorch first so package resolution cannot pull CUDA wheels.
 RUN pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.1"
 
-# Leverage layer caching: copy metadata, install deps, then copy source.
+WORKDIR /build
 COPY pyproject.toml README.md ./
 COPY dork ./dork
-RUN pip install -e ".[train,rag,eval,serve]"
+RUN pip install ".[train,rag,eval,serve]"
 
-# Copy the rest of the project (configs, apps, scripts, sample data).
-COPY . .
+FROM python:3.12-slim AS runtime
 
-EXPOSE 8000 8501
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    VIRTUAL_ENV=/opt/venv \
+    PATH="/opt/venv/bin:$PATH" \
+    DORK_MODEL_DEVICE=cpu
 
-# Default: serve the API. Override CMD to run training/eval/dashboard.
+RUN groupadd --system axiom && useradd --system --gid axiom --create-home axiom
+
+WORKDIR /app
+COPY --from=builder /opt/venv /opt/venv
+COPY --chown=axiom:axiom apps ./apps
+COPY --chown=axiom:axiom configs ./configs
+COPY --chown=axiom:axiom data/sample_docs ./data/sample_docs
+
+USER axiom
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"
+
 CMD ["uvicorn", "apps.api:app", "--host", "0.0.0.0", "--port", "8000"]
