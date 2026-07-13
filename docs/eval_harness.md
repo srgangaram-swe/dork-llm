@@ -3,7 +3,7 @@
 ## Purpose
 
 The evaluation harness models the kind of pre-deployment measurement layer used
-around real LLM systems. It can evaluate a local Tiny GPT checkpoint, a Hugging
+around real LLM systems. It can evaluate a local DorkLLM checkpoint, a Hugging
 Face model, or the deterministic mock provider used for offline CI.
 
 The goal is not to declare a model "good" with one score. The goal is to expose
@@ -83,6 +83,8 @@ report:
   artificially perfect.
 - RAG faithfulness is heuristic and lightweight. It is useful for regression
   tests, not a replacement for human review or stronger entailment models.
+- Token-overlap F1 uses multiset intersection, so repeated predicted tokens
+  cannot inflate recall or push F1 above one.
 - Latency numbers for the mock provider are not representative of real model
   serving. Use `local_gpt` or `hf` for meaningful performance work.
 - The same summary metrics can be mirrored to W&B by setting

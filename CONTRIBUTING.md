@@ -1,6 +1,6 @@
-# Contributing to Dork LLM
+# Contributing to AxiomStack
 
-Thanks for your interest! Dork LLM is a portfolio/education project, but it is
+Thanks for your interest. AxiomStack is a portfolio/research project, but it is
 built to a professional bar and contributions are welcome.
 
 ## Development setup
@@ -13,8 +13,8 @@ pre-commit install
 
 ## Before you push
 
-The CI gate is: **ruff + black + mypy + pytest** on Python 3.11 and 3.12. Run it
-locally with a single command:
+The CI gate covers Ruff, Black, mypy, pytest on Python 3.11–3.13, frontend unit
+tests, and Playwright browser integration. Run the local gates with:
 
 ```bash
 make check        # lint + black --check + typecheck + tests
@@ -32,11 +32,11 @@ make format       # black + ruff --fix
 - **Style:** black (line length 100) + ruff; full type hints; Google-style docstrings.
 - **Commits:** [Conventional Commits](https://www.conventionalcommits.org/)
   (`feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`). Keep them small and logical.
-- **Branches:** `feature/<slug>`, `fix/<slug>`, `docs/<slug>`.
+- **Branches:** `feat/<slug>`, `fix/<slug>`, `docs/<slug>`; target `dev`.
 - **Tests:** new behavior needs a test. Offline by default; gate heavy paths with
   `pytest.importorskip(...)` and the `@pytest.mark.torch` / `slow` markers.
-- **Local-first:** every subsystem must keep a zero-dependency fallback (mock model,
-  hash embedder, in-memory store) so the platform runs offline.
+- **Local-first:** deterministic test backends must be explicit. Never silently
+  substitute a mock for a requested trained model.
 - **No data dumps:** only small public/synthetic data. Never commit datasets,
   checkpoints, vector stores, or reports (see `.gitignore`).
 

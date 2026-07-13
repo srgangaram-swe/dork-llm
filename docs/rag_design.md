@@ -2,7 +2,7 @@
 
 ## Goal
 
-Dork LLM includes a local-first retrieval-augmented generation system that can
+AxiomStack includes a local-first retrieval-augmented generation system that can
 ingest documents, retrieve evidence, answer with citations, and refuse when
 evidence is insufficient.
 
@@ -86,7 +86,8 @@ answer parser extracts citation markers and maps them back to:
 - snippet;
 - retrieval score.
 
-This makes the final `RagAnswer` auditable and usable by the API/dashboard.
+This makes the final `RagAnswer` auditable and usable by DorkChat, the API, and
+the dashboard.
 
 ## Evaluation
 

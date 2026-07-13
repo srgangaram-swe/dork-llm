@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────────
-# Dork LLM — RAG + agentic research assistant configuration.
+# AxiomStack — RAG + bounded research assistant configuration.
 # Local-first: works fully offline with the deterministic hash embedder and
 # an in-memory vector store. Swap in sentence-transformers + Chroma for real use.
 # ─────────────────────────────────────────────────────────────────────────

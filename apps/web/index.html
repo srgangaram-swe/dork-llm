@@ -3,77 +3,304 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>dorkLLM Chat</title>
+    <meta
+      name="description"
+      content="DorkChat is the evidence-first interface to AxiomStack's DorkLLM research platform."
+    />
+    <meta name="theme-color" content="#0b1218" />
+    <title>DorkChat | AxiomStack</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <canvas id="matrix-rain" aria-hidden="true"></canvas>
-    <main class="shell">
-      <section class="chat-panel" aria-label="dorkLLM chat">
-        <header class="topbar">
-          <div>
-            <p class="eyebrow">local-first research assistant</p>
-            <h1>dorkLLM</h1>
-          </div>
-          <div class="status-pill" id="status-pill">
-            <span class="pulse"></span>
-            <span id="status-text">booting</span>
-          </div>
-        </header>
+    <a class="skip-link" href="#chat-heading">Skip to DorkChat</a>
 
-        <section class="messages" id="messages" aria-live="polite"></section>
-
-        <form class="composer" id="composer">
-          <textarea
-            id="prompt"
-            name="prompt"
-            rows="2"
-            placeholder="Ask dorkLLM about transformers, RAG, training, evals..."
-            autocomplete="off"
-          ></textarea>
-          <button class="send-button" id="send-button" type="submit" title="Send message">
-            Send
+    <div class="app-shell">
+      <aside class="workspace-rail" aria-label="AxiomStack workspace controls">
+        <div class="rail-header">
+          <a class="brand" href="/" aria-label="AxiomStack home">
+            <span class="brand-glyph" aria-hidden="true">A<span>×</span></span>
+            <span>
+              <strong>AxiomStack</strong>
+              <small>Proof. Probability. Production.</small>
+            </span>
+          </a>
+          <button
+            class="icon-button controls-toggle"
+            id="controls-toggle"
+            type="button"
+            aria-expanded="false"
+            aria-controls="rail-content"
+          >
+            <span class="sr-only">Toggle workspace controls</span>
+            <svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20">
+              <path d="M4 7h16M4 12h16M4 17h16" />
+            </svg>
           </button>
-        </form>
-      </section>
-
-      <aside class="control-panel" aria-label="chat controls">
-        <div class="brand-mark">DORK</div>
-        <div class="control-group">
-          <label>Mode</label>
-          <div class="segmented" role="group" aria-label="chat mode">
-            <button type="button" class="mode-button active" data-mode="auto">Auto</button>
-            <button type="button" class="mode-button" data-mode="rag">RAG</button>
-            <button type="button" class="mode-button" data-mode="generate">Gen</button>
-          </div>
         </div>
 
-        <div class="control-group">
-          <label for="temperature">Temperature <span id="temperature-value">0.7</span></label>
-          <input id="temperature" type="range" min="0" max="1.4" value="0.7" step="0.1" />
-        </div>
+        <div class="rail-content" id="rail-content">
+          <section class="runtime-card" aria-labelledby="runtime-heading">
+            <div class="section-heading-row">
+              <div>
+                <p class="section-kicker">Runtime</p>
+                <h2 id="runtime-heading">System truth</h2>
+              </div>
+              <div
+                class="runtime-badge checking"
+                id="runtime-badge"
+                role="status"
+                aria-live="polite"
+              >
+                <span class="status-dot" aria-hidden="true"></span>
+                <span id="runtime-status">Checking</span>
+              </div>
+            </div>
 
-        <div class="control-group">
-          <label for="max-tokens">Max tokens <span id="max-tokens-value">256</span></label>
-          <input id="max-tokens" type="range" min="32" max="512" value="256" step="32" />
-        </div>
+            <dl class="runtime-grid">
+              <div>
+                <dt>Model</dt>
+                <dd id="model-name">Resolving runtime</dd>
+              </div>
+              <div>
+                <dt>Provider</dt>
+                <dd id="provider-name">—</dd>
+              </div>
+              <div>
+                <dt>Knowledge index</dt>
+                <dd><span id="rag-count">—</span> chunks</dd>
+              </div>
+              <div>
+                <dt>API version</dt>
+                <dd id="api-version">—</dd>
+              </div>
+            </dl>
+            <p class="runtime-note" id="runtime-note">
+              Verifying the model artifact and retrieval index.
+            </p>
+          </section>
 
-        <div class="control-group stats">
-          <div>
-            <span>Model</span>
-            <strong id="model-name">checking</strong>
-          </div>
-          <div>
-            <span>RAG chunks</span>
-            <strong id="rag-count">0</strong>
-          </div>
-          <div>
-            <span>Last latency</span>
-            <strong id="latency">-</strong>
+          <form class="control-form" id="settings-form">
+            <fieldset class="control-group mode-control">
+              <legend>Response strategy</legend>
+              <div class="segmented-control">
+                <label>
+                  <input type="radio" name="mode" value="auto" checked />
+                  <span>Auto</span>
+                </label>
+                <label>
+                  <input type="radio" name="mode" value="rag" />
+                  <span>Evidence</span>
+                </label>
+                <label>
+                  <input type="radio" name="mode" value="generate" />
+                  <span>Model</span>
+                </label>
+              </div>
+              <p class="control-help" id="mode-description">
+                Routes grounded questions through retrieval, then falls back to
+                model generation.
+              </p>
+            </fieldset>
+
+            <fieldset class="control-group" id="sampling-controls">
+              <legend>Generation</legend>
+              <label class="range-label" for="temperature">
+                <span>Temperature</span>
+                <output id="temperature-value" for="temperature">0.7</output>
+              </label>
+              <input
+                id="temperature"
+                type="range"
+                min="0"
+                max="1.4"
+                value="0.7"
+                step="0.1"
+              />
+
+              <label class="range-label" for="max-tokens">
+                <span>Response budget</span>
+                <output id="max-tokens-value" for="max-tokens"
+                  >256 tokens</output
+                >
+              </label>
+              <input
+                id="max-tokens"
+                type="range"
+                min="32"
+                max="512"
+                value="256"
+                step="32"
+              />
+              <p class="control-help" id="sampling-help">
+                Sampling applies whenever the model generation path is active.
+              </p>
+            </fieldset>
+          </form>
+
+          <section class="research-card" aria-labelledby="research-heading">
+            <p class="section-kicker">Research stack</p>
+            <h2 id="research-heading">Inspect, do not obscure</h2>
+            <ul class="research-list">
+              <li><span>01</span> From-scratch transformer systems</li>
+              <li><span>02</span> Statistical evaluation and gates</li>
+              <li><span>03</span> Cited retrieval and observability</li>
+            </ul>
+          </section>
+
+          <div class="rail-actions">
+            <button class="quiet-button" id="clear-button" type="button">
+              Clear conversation
+            </button>
+            <p>History is bounded and stored only in this browser.</p>
           </div>
         </div>
       </aside>
-    </main>
+
+      <main class="chat-workspace" aria-labelledby="chat-heading">
+        <header class="chat-header">
+          <div>
+            <p class="product-label">
+              <span aria-hidden="true"></span>DorkChat / Research cockpit
+            </p>
+            <h1 id="chat-heading">
+              Ask the system.<br />Inspect the evidence.
+            </h1>
+            <p class="chat-intro">
+              Explore DorkLLM architecture, retrieval, training, and evaluation
+              with provenance visible at every step.
+            </p>
+          </div>
+          <div class="session-metric" aria-label="Most recent response latency">
+            <span>Last response</span>
+            <strong id="latency">No requests yet</strong>
+          </div>
+        </header>
+
+        <section class="conversation" aria-label="Conversation">
+          <div class="empty-state" id="empty-state">
+            <div class="empty-state-copy">
+              <span class="eyebrow">Start with a research thread</span>
+              <h2>Move from claim to evidence.</h2>
+              <p>
+                DorkChat reports which runtime answered, how long it took, and
+                which sources supported the response.
+              </p>
+            </div>
+            <div class="prompt-grid" aria-label="Suggested prompts">
+              <button
+                class="prompt-starter"
+                type="button"
+                data-prompt="Explain how causal masking and the KV cache work together during autoregressive decoding."
+              >
+                <span>Transformer internals</span>
+                <strong>Causal masks + KV cache</strong>
+              </button>
+              <button
+                class="prompt-starter"
+                type="button"
+                data-prompt="How does this project evaluate RAG faithfulness and citation quality?"
+              >
+                <span>Evaluation</span>
+                <strong>Measure grounded answers</strong>
+              </button>
+              <button
+                class="prompt-starter"
+                type="button"
+                data-prompt="Compare the baseline DorkLLM architecture with the stronger training profile."
+              >
+                <span>Model research</span>
+                <strong>Compare training tracks</strong>
+              </button>
+              <button
+                class="prompt-starter"
+                type="button"
+                data-prompt="Walk me through the full request path from this browser to retrieval and generation."
+              >
+                <span>Full stack</span>
+                <strong>Trace a production request</strong>
+              </button>
+            </div>
+          </div>
+
+          <ol
+            class="messages"
+            id="messages"
+            aria-label="Chat messages"
+            aria-live="polite"
+            aria-relevant="additions text"
+            aria-busy="false"
+          ></ol>
+        </section>
+
+        <div class="composer-region">
+          <div class="error-banner" id="error-banner" role="alert" hidden>
+            <div>
+              <strong>Request did not complete</strong>
+              <p id="error-message"></p>
+            </div>
+            <button class="text-button" id="retry-button" type="button">
+              Retry
+            </button>
+          </div>
+
+          <form class="composer" id="composer">
+            <label class="sr-only" for="prompt">Message DorkChat</label>
+            <textarea
+              id="prompt"
+              name="prompt"
+              rows="1"
+              maxlength="6000"
+              placeholder="Ask about the model, evidence, experiments, or implementation…"
+              autocomplete="off"
+              aria-describedby="composer-hint character-count"
+              required
+            ></textarea>
+            <div class="composer-footer">
+              <div class="composer-context">
+                <span id="composer-hint"
+                  ><kbd>Enter</kbd> send · <kbd>Shift</kbd> +
+                  <kbd>Enter</kbd> newline</span
+                >
+                <span id="character-count" aria-live="polite">0 / 6000</span>
+              </div>
+              <div class="composer-actions">
+                <button
+                  class="stop-button"
+                  id="stop-button"
+                  type="button"
+                  hidden
+                >
+                  <span class="stop-icon" aria-hidden="true"></span>
+                  Stop
+                </button>
+                <button class="send-button" id="send-button" type="submit">
+                  <span>Send</span>
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 24 24"
+                    width="18"
+                    height="18"
+                  >
+                    <path d="m5 12 14-7-4 14-3-6-7-1Z" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </form>
+          <p class="product-disclaimer">
+            Research system outputs can be wrong. Verify consequential claims
+            against cited evidence.
+          </p>
+        </div>
+
+        <div
+          class="sr-only"
+          id="announcer"
+          aria-live="polite"
+          aria-atomic="true"
+        ></div>
+      </main>
+    </div>
 
     <script src="/app.js" type="module"></script>
   </body>

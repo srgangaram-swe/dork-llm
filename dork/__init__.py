@@ -1,4 +1,4 @@
-"""Dork LLM — an end-to-end LLM systems platform.
+"""AxiomStack — proof, probability, and production for local LLM systems.
 
 Three cohesive subsystems share one package:
 
@@ -9,13 +9,12 @@ Three cohesive subsystems share one package:
 * ``dork.rag`` / ``dork.agents`` — a cited, source-grounded RAG pipeline and an
   agentic research assistant.
 
-The package is intentionally *local-first*: every subsystem has a zero-dependency
-fallback (mock model, hash embedder, in-memory vector store) so the platform runs
-and self-tests fully offline, then swaps in heavier backends for real use.
+The package is intentionally local-first. Deterministic test backends remain
+explicit so offline verification never disguises a mock as a trained DorkLLM.
 """
 
 from __future__ import annotations
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = ["__version__"]

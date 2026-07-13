@@ -1,10 +1,14 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
-    branches: [main]
+    branches: [dev, main, prod]
   pull_request:
-    branches: [main]
+    branches: [dev, main, prod]
+
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -17,7 +21,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12"]
+        python-version: ["3.11", "3.12", "3.13"]
 
     steps:
       - uses: actions/checkout@v4
@@ -31,8 +35,8 @@ jobs:
       - name: Install CPU PyTorch
         run: pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.1"
 
-      - name: Install package (dev + extras)
-        run: pip install -e ".[train,eval,dev]"
+      - name: Install package (dev + runtime extras)
+        run: pip install -e ".[train,eval,serve,dev]"
 
       - name: Ruff (lint)
         run: ruff check dork scripts apps tests
@@ -41,10 +45,53 @@ jobs:
         run: black --check dork scripts apps tests
 
       - name: Mypy (type-check)
-        run: mypy dork
+        run: mypy dork apps
 
       - name: Pytest
-        run: pytest -m "not slow" --cov=dork --cov-report=term-missing
+        run: >-
+          pytest -m "not slow"
+          --cov=dork --cov=apps
+          --cov-report=term-missing
+          --cov-report=xml
+
+  web:
+    name: Web unit & browser integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install CPU PyTorch
+        run: pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.1"
+
+      - name: Install API test runtime
+        run: pip install -e ".[train,serve,dev]"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install web dependencies
+        run: npm ci
+
+      - name: Check web formatting
+        run: npm run format:check
+
+      - name: Run web unit tests
+        run: npm run test:web
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run browser integration tests
+        run: npm run test:e2e
 
   smoke-train:
     name: Smoke train tiny GPT (1 step)

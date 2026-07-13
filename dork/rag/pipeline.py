@@ -29,6 +29,7 @@ logger = get_logger(__name__)
 REFUSAL_TEXT = (
     "I don't have enough information in the provided documents to answer that confidently."
 )
+_CHAT_STOP_MARKERS = ["### Instruction:", "<|endoftext|>"]
 
 
 @dataclass
@@ -62,7 +63,7 @@ class RagPipeline:
         self.cfg = cfg
         self.embedder = embedder or build_embedder(cfg.embeddings)
         self.store = store or build_vector_store(cfg.vector_store)
-        self.model = model or build_language_model(cfg.generation)
+        self.model = model if model is not None else build_language_model(cfg.generation)
         self.reranker = LexicalReranker()
 
     # ── Ingestion ────────────────────────────────────────────────────
@@ -137,6 +138,7 @@ class RagPipeline:
             prompt,
             max_new_tokens=int(gen.get("max_new_tokens", 256)),
             temperature=float(gen.get("temperature", 0.0)),
+            stop=list(gen.get("stop", _CHAT_STOP_MARKERS)),
         )
         citations = self._extract_citations(raw, contexts)
         refused = any(k in raw.lower() for k in ("don't have enough", "insufficient"))
@@ -152,10 +154,12 @@ class RagPipeline:
     def _build_prompt(self, question: str, contexts: list[ScoredChunk]) -> str:
         ctx_block = "\n".join(f"[{i + 1}] {sc.chunk.text}" for i, sc in enumerate(contexts))
         return (
-            "You are a precise research assistant. Answer the question using ONLY the "
-            "context below. Cite supporting sources inline as [n]. If the context is "
-            "insufficient, reply that you don't have enough information.\n\n"
-            f"Context:\n{ctx_block}\n\nQuestion: {question}\nAnswer:"
+            "### Instruction:\n"
+            "Answer the question using ONLY the retrieved context. Cite supporting "
+            "sources inline as [n]. If the context is insufficient, say that you do "
+            "not have enough information.\n\n"
+            f"Context:\n{ctx_block}\n\nQuestion: {question}\n\n"
+            "### Response:\n"
         )
 
     @staticmethod
@@ -179,6 +183,6 @@ class RagPipeline:
         return citations
 
 
-def build_pipeline(cfg: RagConfig) -> RagPipeline:
+def build_pipeline(cfg: RagConfig, model: LanguageModel | None = None) -> RagPipeline:
     """Factory mirroring the other subsystems' ``build_*`` helpers."""
-    return RagPipeline(cfg)
+    return RagPipeline(cfg, model=model)

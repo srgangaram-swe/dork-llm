@@ -37,8 +37,16 @@ class RMSNorm(nn.Module):
         self.eps = eps
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        rms = torch.rsqrt(x.pow(2).mean(dim=-1, keepdim=True) + self.eps)
-        return self.weight * x * rms
+        # Accumulate the variance in fp32 for numerical stability, then restore
+        # the activation dtype so Q/K normalization remains compatible with V
+        # under bf16/fp16 autocast.
+        input_dtype = x.dtype
+        compute_dtype = (
+            torch.float32 if input_dtype in (torch.float16, torch.bfloat16) else input_dtype
+        )
+        x_compute = x.to(compute_dtype)
+        rms = torch.rsqrt(x_compute.pow(2).mean(dim=-1, keepdim=True) + self.eps)
+        return (self.weight.to(compute_dtype) * x_compute * rms).to(input_dtype)
 
 
 def sinusoidal_position_embedding(block_size: int, n_embd: int) -> torch.Tensor:
@@ -88,16 +96,20 @@ class RotaryEmbedding(nn.Module):
         return q_rot, k_rot
 
 
-#: A per-layer key/value cache entry, each shaped ``(B, n_head, T_kv, head_dim)``.
+#: A per-layer cache entry. Keys and values are compactly stored as
+#: ``(B, n_kv_head, T_kv, head_dim)`` and expanded only for attention compute.
 KVCache = tuple[torch.Tensor, torch.Tensor]
 
 
 class CausalSelfAttention(nn.Module):
-    """Multi-head masked self-attention with a single fused QKV projection.
+    """Causal self-attention with optional grouped-query attention.
 
     Supports incremental decoding via an optional key/value cache: pass the
     previous step's ``layer_past`` and set ``use_cache=True`` to reuse already-
     computed keys/values instead of recomputing attention over the whole prefix.
+    With ``n_kv_head < n_head``, several query heads share each key/value head and
+    the cache remains compact. Optional per-head QK RMS normalization stabilizes
+    attention logits without changing the residual-stream normalization.
     """
 
     def __init__(
@@ -108,20 +120,32 @@ class CausalSelfAttention(nn.Module):
         dropout: float = 0.0,
         bias: bool = False,
         use_rope: bool = False,
+        n_kv_head: int | None = None,
+        qk_norm: bool = False,
     ) -> None:
         super().__init__()
         if n_embd % n_head != 0:
             raise ValueError("n_embd must be divisible by n_head")
+        n_kv_head = n_head if n_kv_head is None else n_kv_head
+        if n_kv_head < 1:
+            raise ValueError("n_kv_head must be positive")
+        if n_head % n_kv_head != 0:
+            raise ValueError("n_head must be divisible by n_kv_head")
         self.n_head = n_head
+        self.n_kv_head = n_kv_head
         self.n_embd = n_embd
         self.head_dim = n_embd // n_head
+        self.kv_dim = self.n_kv_head * self.head_dim
         self.dropout = dropout
 
-        # Fused projection for q, k, v then an output projection.
-        self.c_attn = nn.Linear(n_embd, 3 * n_embd, bias=bias)
+        # A single projection remains checkpoint-compatible with standard MHA:
+        # when n_kv_head == n_head, its shape is the original 3 * n_embd.
+        self.c_attn = nn.Linear(n_embd, n_embd + 2 * self.kv_dim, bias=bias)
         self.c_proj = nn.Linear(n_embd, n_embd, bias=bias)
         self.attn_dropout = nn.Dropout(dropout)
         self.resid_dropout = nn.Dropout(dropout)
+        self.q_norm: nn.Module = RMSNorm(self.head_dim) if qk_norm else nn.Identity()
+        self.k_norm: nn.Module = RMSNorm(self.head_dim) if qk_norm else nn.Identity()
 
         self.rope = RotaryEmbedding(self.head_dim) if use_rope else None
         self._flash = hasattr(F, "scaled_dot_product_attention")
@@ -133,11 +157,13 @@ class CausalSelfAttention(nn.Module):
         use_cache: bool = False,
     ) -> tuple[torch.Tensor, KVCache | None]:
         B, T, C = x.shape
-        q, k, v = self.c_attn(x).split(self.n_embd, dim=2)
-        # (B, n_head, T, head_dim)
+        q, k, v = self.c_attn(x).split((self.n_embd, self.kv_dim, self.kv_dim), dim=2)
+        # Queries use n_head; keys/values retain only n_kv_head for GQA.
         q = q.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
-        k = k.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
-        v = v.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
+        k = k.view(B, T, self.n_kv_head, self.head_dim).transpose(1, 2)
+        v = v.view(B, T, self.n_kv_head, self.head_dim).transpose(1, 2)
+        q = self.q_norm(q)
+        k = self.k_norm(k)
 
         # Number of already-cached positions (0 during prefill / training).
         offset = layer_past[0].shape[-2] if layer_past is not None else 0
@@ -151,30 +177,44 @@ class CausalSelfAttention(nn.Module):
             v = torch.cat((past_v, v), dim=2)
         present: KVCache | None = (k, v) if use_cache else None
 
-        # A multi-token block (prefill/training) needs a causal mask; a single
-        # cached decode step attends to everything already in the cache.
-        is_causal = T > 1
+        # Expand compact KV heads only for the attention kernel, never in cache.
+        if self.n_kv_head != self.n_head:
+            repeats = self.n_head // self.n_kv_head
+            attn_k = k.repeat_interleave(repeats, dim=1)
+            attn_v = v.repeat_interleave(repeats, dim=1)
+        else:
+            attn_k, attn_v = k, v
+
+        # Fused SDPA's built-in non-square causal mask is upper-left aligned, so
+        # it is incorrect for a multi-token chunk appended to a cached prefix.
+        # Use an absolute-position mask for that case; preserve the fast causal
+        # kernel for ordinary prefill and no mask for a one-token decode step.
+        attn_mask: torch.Tensor | None = None
+        is_causal = T > 1 and offset == 0
+        if T > 1 and offset > 0:
+            q_pos = torch.arange(offset, offset + T, device=x.device).view(T, 1)
+            k_pos = torch.arange(attn_k.shape[-2], device=x.device).view(1, -1)
+            attn_mask = k_pos <= q_pos
 
         if self._flash:
             y = F.scaled_dot_product_attention(
                 q,
-                k,
-                v,
-                attn_mask=None,
+                attn_k,
+                attn_v,
+                attn_mask=attn_mask,
                 dropout_p=self.dropout if self.training else 0.0,
                 is_causal=is_causal,
             )
         else:  # pragma: no cover - exercised only on old torch
-            t_k = k.shape[-2]
-            att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(self.head_dim))
-            if is_causal:
-                # Query i (absolute pos offset+i) may attend to key j iff j <= offset+i.
-                q_pos = torch.arange(offset, offset + T, device=x.device).view(T, 1)
-                k_pos = torch.arange(t_k, device=x.device).view(1, t_k)
-                att = att.masked_fill(k_pos > q_pos, float("-inf"))
+            att = (q @ attn_k.transpose(-2, -1)) * (1.0 / math.sqrt(self.head_dim))
+            if attn_mask is not None:
+                att = att.masked_fill(~attn_mask, float("-inf"))
+            elif is_causal:
+                causal = torch.ones((T, T), dtype=torch.bool, device=x.device).tril()
+                att = att.masked_fill(~causal, float("-inf"))
             att = F.softmax(att, dim=-1)
             att = self.attn_dropout(att)
-            y = att @ v
+            y = att @ attn_v
 
         y = y.transpose(1, 2).contiguous().view(B, T, C)
         return self.resid_dropout(self.c_proj(y)), present
@@ -245,6 +285,8 @@ class Block(nn.Module):
         norm_type: str = "layernorm",
         mlp_type: str = "gelu",
         stochastic_depth: float = 0.0,
+        n_kv_head: int | None = None,
+        qk_norm: bool = False,
     ) -> None:
         super().__init__()
         self.ln_1: nn.Module
@@ -260,7 +302,16 @@ class Block(nn.Module):
         else:
             raise ValueError(f"Unknown norm_type: {norm_type}")
 
-        self.attn = CausalSelfAttention(n_embd, n_head, block_size, dropout, bias, use_rope)
+        self.attn = CausalSelfAttention(
+            n_embd,
+            n_head,
+            block_size,
+            dropout,
+            bias,
+            use_rope,
+            n_kv_head=n_kv_head,
+            qk_norm=qk_norm,
+        )
         if mlp_type == "gelu":
             self.mlp = MLP(n_embd, dropout, bias)
         elif mlp_type == "swiglu":

@@ -1,4 +1,4 @@
-"""Streamlit dashboard for the Dork LLM platform.
+"""Streamlit research dashboard for AxiomStack.
 
 Five tabs map onto the platform's subsystems: text generation, the evaluation
 harness, the RAG assistant, the research agent, and serving metrics. The
@@ -22,11 +22,11 @@ def get_service() -> DorkService:
 
 service = get_service()
 
-st.set_page_config(page_title="Dork LLM", page_icon="🧠", layout="wide")
-st.title("🧠 Dork LLM — LLM systems platform")
+st.set_page_config(page_title="AxiomStack Lab", page_icon="🧠", layout="wide")
+st.title("🧠 AxiomStack — DorkLLM research lab")
 st.caption(
-    "A tiny GPT trained from scratch · a reusable eval harness · a cited RAG + agent. "
-    "Educational-scale, local-first, and honest about its limits."
+    "Proof. Probability. Production. · DorkLLM from scratch · evaluation · cited RAG. "
+    "Educational-scale, local-first, and explicit about its limits."
 )
 
 health = service.health()

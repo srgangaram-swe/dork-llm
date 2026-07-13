@@ -7,7 +7,7 @@ import pytest
 torch = pytest.importorskip("torch")
 
 from dork.generation.sampling import apply_top_k, apply_top_p, sample_next_token  # noqa: E402
-from dork.models.layers import RMSNorm, SwiGLU  # noqa: E402
+from dork.models.layers import CausalSelfAttention, RMSNorm, SwiGLU  # noqa: E402
 from dork.models.tiny_gpt import TinyGPT  # noqa: E402
 
 pytestmark = pytest.mark.torch
@@ -70,16 +70,20 @@ def test_frontier_architecture_variants_forward_and_cache():
         block_size=48,
         n_layer=3,
         n_head=4,
+        n_kv_head=2,
         n_embd=64,
         dropout=0.0,
         pos_encoding="rope",
         norm_type="rmsnorm",
         mlp_type="swiglu",
         stochastic_depth=0.1,
+        qk_norm=True,
     )
     model = TinyGPT(cfg)
     assert any(isinstance(m, RMSNorm) for m in model.modules())
     assert any(isinstance(m, SwiGLU) for m in model.modules())
+    assert all(block.attn.n_kv_head == 2 for block in model.blocks)
+    assert all(isinstance(block.attn.q_norm, RMSNorm) for block in model.blocks)
 
     x = torch.randint(0, cfg.vocab_size, (2, 12))
     logits, loss = model(x, x)
@@ -90,6 +94,95 @@ def test_frontier_architecture_variants_forward_and_cache():
     ref = model.generate(x[:1, :6], max_new_tokens=12, temperature=0.0, use_cache=False)
     cached = model.generate(x[:1, :6], max_new_tokens=12, temperature=0.0, use_cache=True)
     assert torch.equal(ref, cached)
+
+    _, past = model.forward_with_cache(x[:1, :6])
+    assert all(k.shape[1] == cfg.n_kv_head for k, _ in past)
+    assert all(v.shape[1] == cfg.n_kv_head for _, v in past)
+
+
+def test_grouped_query_attention_reduces_projection_and_cache_width():
+    attn = CausalSelfAttention(n_embd=64, n_head=8, block_size=32, n_kv_head=2)
+    assert attn.c_attn.out_features == 64 + 2 * 2 * 8
+
+    x = torch.randn(2, 7, 64)
+    out, present = attn(x, use_cache=True)
+    assert out.shape == x.shape
+    assert present is not None
+    key, value = present
+    assert key.shape == value.shape == (2, 2, 7, 8)
+
+
+def test_legacy_multi_head_state_dict_shape_remains_compatible():
+    from dork.utils.config import ModelConfig
+
+    legacy_payload = {
+        "vocab_size": 64,
+        "block_size": 16,
+        "n_layer": 2,
+        "n_head": 4,
+        "n_embd": 64,
+        "dropout": 0.0,
+    }
+    original = TinyGPT(ModelConfig.model_validate(legacy_payload))
+    restored = TinyGPT(ModelConfig.model_validate(legacy_payload))
+    restored.load_state_dict(original.state_dict(), strict=True)
+
+    assert restored.blocks[0].attn.n_kv_head == 4
+    assert restored.blocks[0].attn.c_attn.out_features == 3 * 64
+
+
+@pytest.mark.parametrize("n_kv_head,qk_norm", [(4, False), (2, False), (2, True)])
+def test_cached_multi_token_chunk_matches_full_prefill(n_kv_head, qk_norm):
+    from dork.utils.config import ModelConfig
+
+    torch.manual_seed(0)
+    cfg = ModelConfig(
+        vocab_size=96,
+        block_size=32,
+        n_layer=2,
+        n_head=4,
+        n_kv_head=n_kv_head,
+        n_embd=64,
+        dropout=0.0,
+        pos_encoding="rope",
+        qk_norm=qk_norm,
+    )
+    model = TinyGPT(cfg).eval()
+    idx = torch.randint(0, cfg.vocab_size, (1, 11))
+
+    full_logits, _ = model.forward_with_cache(idx)
+    _, prefix_cache = model.forward_with_cache(idx[:, :4])
+    chunk_logits, chunk_cache = model.forward_with_cache(idx[:, 4:], past=prefix_cache)
+
+    assert torch.allclose(chunk_logits, full_logits, atol=1e-6, rtol=1e-5)
+    assert all(key.shape == (1, n_kv_head, 11, 16) for key, _ in chunk_cache)
+
+
+def test_cached_multi_token_chunk_matches_full_prefill_without_flash():
+    from dork.utils.config import ModelConfig
+
+    torch.manual_seed(0)
+    cfg = ModelConfig(
+        vocab_size=64,
+        block_size=24,
+        n_layer=2,
+        n_head=4,
+        n_kv_head=2,
+        n_embd=64,
+        dropout=0.0,
+        pos_encoding="rope",
+        qk_norm=True,
+    )
+    model = TinyGPT(cfg).eval()
+    for block in model.blocks:
+        block.attn._flash = False
+    idx = torch.randint(0, cfg.vocab_size, (1, 10))
+
+    full_logits, _ = model.forward_with_cache(idx)
+    _, prefix_cache = model.forward_with_cache(idx[:, :3])
+    chunk_logits, _ = model.forward_with_cache(idx[:, 3:], past=prefix_cache)
+
+    assert torch.allclose(chunk_logits, full_logits, atol=1e-6, rtol=1e-5)
 
 
 @pytest.mark.parametrize("pos", ["learned", "sinusoidal", "rope"])

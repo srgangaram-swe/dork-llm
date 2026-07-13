@@ -1,8 +1,8 @@
-# Dork LLM — stronger small-model training profile.
+# AxiomStack — modern-small DorkLLM research profile.
 #
 # This config is intentionally still local-hardware friendly, but it moves beyond
 # the default demo run: bigger context, more layers/width, RoPE, RMSNorm, SwiGLU,
-# stochastic depth, gradient accumulation, and a TinyStories-scale data target.
+# stochastic depth, gradient accumulation, and a capped TinyStories data target.
 seed: 2026
 
 data:
@@ -21,6 +21,7 @@ model:
   block_size: 512
   n_layer: 8
   n_head: 8
+  n_kv_head: 2
   n_embd: 512
   dropout: 0.12
   bias: false
@@ -28,6 +29,7 @@ model:
   norm_type: rmsnorm
   mlp_type: swiglu
   stochastic_depth: 0.05
+  qk_norm: true
 
 training:
   batch_size: 8
@@ -73,4 +75,4 @@ tracking:
   out_dir: experiments
   project: dork-llm
   wandb: false
-  tags: ["frontier-track", "tinystories", "rmsnorm", "swiglu", "rope"]
+  tags: ["modern-small", "tinystories", "rmsnorm", "swiglu", "rope", "gqa", "qk-norm"]

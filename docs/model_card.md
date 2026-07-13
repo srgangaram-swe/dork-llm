@@ -1,66 +1,98 @@
-# Model Card: dorkLLM GPT
+# Model card: DorkLLM
 
 ## Summary
 
-dorkLLM GPT is a compact decoder-only transformer implemented from scratch in
-PyTorch. It now has two tracks: a tiny laptop-friendly baseline and a stronger
-small-model profile with modern decoder architecture choices. It is still not a
-frontier model, but it is no longer only a toy configuration.
+DorkLLM is AxiomStack's compact decoder-only transformer family, implemented
+from explicit PyTorch components. It has a laptop-friendly reference profile and
+a modern-small research profile. Both are educational-scale models intended for
+architecture, training, inference, and evaluation experiments—not frontier or
+general-assistant claims.
 
 ## Architecture
 
-- Decoder-only transformer in the GPT-2 family.
-- Token embeddings plus configurable positional encoding: learned, sinusoidal,
-  or RoPE.
-- Pre-norm transformer blocks with configurable LayerNorm or RMSNorm.
-- Multi-head causal self-attention with PyTorch scaled dot-product attention
-  when available.
-- Incremental KV-cache decoding for fast inference, with a reference decode path
-  used for numerical parity tests and speed benchmarks.
-- Configurable GELU MLP or SwiGLU feed-forward blocks.
-- Optional per-layer stochastic depth for the stronger training profile.
-- Residual connections, LayerNorm, dropout, AdamW, gradient clipping, cosine LR
-  schedule, checkpointing, and weight tying.
-- Sampling supports temperature, greedy decoding, top-k, and top-p.
+- Decoder-only, pre-normalized transformer.
+- Learned, sinusoidal, or rotary positional information.
+- LayerNorm or RMSNorm residual-stream normalization.
+- GELU MLP or SwiGLU gated feed-forward blocks.
+- Multi-head attention or grouped-query attention with a compact KV cache.
+- Optional per-head QK RMS normalization.
+- Fused PyTorch scaled-dot-product attention when available and an explicit
+  masked-softmax reference path.
+- Offset-aware causal masks for cached multi-token chunks.
+- Weight-tied token embedding/output projection.
+- Optional per-layer stochastic depth.
+- AdamW, gradient clipping, cosine decay, warmup, gradient accumulation,
+  autocast, checkpointing, and optional compilation.
 
-Default config: `configs/train_tiny_gpt.yaml`.
-Stronger profile: `configs/dorkllm_frontier.yaml`.
+Default profile: `configs/train_tiny_gpt.yaml`.
 
-## Intended Use
+Modern-small profile: `configs/dorkllm_frontier.yaml`. The filename is retained
+for compatibility; the documentation deliberately avoids calling this a
+frontier model.
 
-This model is intended to show that the author can:
+## Objectives
 
-- implement a transformer from first principles;
-- train and checkpoint a small causal language model;
-- post-train it with supervised instruction tuning (SFT);
-- evaluate perplexity and generation behavior;
-- benchmark KV-cache generation speedups;
-- expose the model through a reusable generation provider;
-- serve it through CLI, scripts, FastAPI, the Matrix chat web app, and Streamlit.
+Pretraining uses causal next-token cross-entropy. Supervised fine-tuning uses
+the same one-token shift while masking prompt and padding targets, so only the
+response and end-of-text targets contribute to loss. Long examples preserve
+response supervision by trimming prompt context before response targets.
 
-It is useful for portfolio demonstration, tests, local experiments, and
-educational analysis. It is not intended for factual QA, production generation,
-policy decisions, or user-facing autonomous behavior.
+The v0.2 audit found that the earlier SFT dataset aligned each target with its
+same-position input. That made the earlier post-training comparison invalid.
+The implementation and regression tests now enforce true next-token alignment;
+old SFT checkpoints must be retrained before they are used as evidence.
 
-## Training Data
+## Profiles
 
-The default pipeline uses public text only:
+| Setting | Baseline | Modern-small |
+|---|---:|---:|
+| Context | 128 | 512 |
+| Layers | 4 | 8 |
+| Width | 256 | 512 |
+| Query heads | 4 | 8 |
+| KV heads | 4 | 2 |
+| Position | learned | RoPE |
+| Normalization | LayerNorm | RMSNorm + QK RMSNorm |
+| Feed-forward | GELU | SwiGLU |
+| Stochastic depth | 0 | 0.05 |
 
-- Tiny Shakespeare when network access is available.
-- A bundled public-domain Shakespeare excerpt as an offline fallback.
-- Custom public or synthetic text can be configured through
-  `data.dataset: custom` and `data.raw_path`.
+Grouped-query attention keeps eight query heads while storing only two KV heads
+in the modern-small cache. Unit tests assert cache shape, projection size,
+legacy multi-head checkpoint compatibility, and numerical parity with full
+causal prefill.
 
-The stronger `configs/dorkllm_frontier.yaml` profile targets TinyStories-scale
-training with an 8k BPE vocabulary, 512-token context, gradient accumulation,
-RMSNorm, SwiGLU, RoPE, and a dedicated SFT output directory.
+## Intended use
 
-No employer data, sensitive documents, private APIs, or proprietary corpora are
-required or included.
+DorkLLM is intended to demonstrate and test:
 
-## Local Baseline
+- transformer architecture and causal-objective implementation;
+- local pretraining and post-training mechanics;
+- checkpoint and tokenizer compatibility;
+- sampling and incremental inference;
+- architecture ablations and performance measurement;
+- typed model integration through CLI, API, RAG, and DorkChat.
 
-One local run in this workspace used a smaller training profile and produced:
+It is not intended for factual QA, high-stakes decisions, autonomous action,
+safety-critical use, or unsupervised public deployment. DorkChat exposes the
+active provider and degradation state so a deterministic demo provider cannot
+be mistaken for a trained DorkLLM.
+
+## Training data
+
+The default path uses public text only:
+
+- Tiny Shakespeare when download is available;
+- a bundled public-domain excerpt as the offline fallback;
+- configurable public or synthetic custom text.
+
+The modern-small configuration can use a capped TinyStories sample for local
+research. It does not train on the full corpus by default and should not be
+described as a TinyStories-scale result. No employer, classified, proprietary,
+or sensitive data is required or included.
+
+## Historical local baseline
+
+A pre-v0.2 baseline run recorded the following pretraining measurements:
 
 | Field | Value |
 |---|---:|
@@ -70,53 +102,52 @@ One local run in this workspace used a smaller training profile and produced:
 | Training time | 1.49 minutes |
 | Final train loss | 4.5095 |
 | Final validation loss | 4.6829 |
-| Train perplexity on 4k chars | 99.69 |
+| Train perplexity on 4k characters | 99.69 |
 
-The local checkpoint and tokenizer are ignored by git. Regenerate them with:
+These values describe one local run, not a population estimate. The checkpoint
+is ignored by git. No corrected-SFT quality number is claimed until a new fixed
+split, seed, artifact hash, and paired report are published.
 
-```bash
-make train-tokenizer
-make train-small-gpt
-make sft
-make benchmark
-make generate
-```
+## Runtime resolution
 
-## Known Behavior
+The service validates checkpoint/tokenizer vocabulary compatibility. It reports
+the requested provider, active provider, artifact, device, and any degradation
+reason. Strict mode fails readiness when no compatible model exists. A mock is
+available only through explicit demo mode and is labeled as such.
 
-The model learns local Shakespeare-like syntax and short stylistic continuations.
-With limited data and training budget, it also produces malformed words,
-repeated phrases, and hallucinated names. This is expected and documented rather
-than hidden: the project is about the end-to-end LLM systems stack, not a high
-quality standalone model.
+Candidate local artifacts are considered from the explicitly requested path,
+then modern-small SFT, modern-small base, baseline SFT, and baseline base paths.
+Selection order is not a quality claim; experiment metadata must justify a
+candidate before release promotion.
 
 ## Evaluation
 
-Use:
-
 ```bash
 make eval
-make benchmark_inference
+make benchmark
 make scaling-study
 make experiments
 ```
 
-The evaluation harness can target the local checkpoint, a Hugging Face model, or
-the deterministic mock provider used in CI. See `docs/eval_harness.md`.
+The suite covers perplexity where supported, task behavior, structured output,
+retrieval faithfulness, citation behavior, safety fixtures, tool selection, and
+latency. The current datasets are deliberately small. The v0.3 roadmap adds
+paired inference, repeated seeds, calibration, selective prediction, and
+controlled architecture/scaling experiments.
 
-The scaling study in `scripts/scaling_study.py` is a small ablation over model
-width/depth that writes `reports/scaling_study.json` and the committed plot at
-`docs/assets/scaling_study.png`. It is useful for demonstrating methodology, not
-for making frontier-scale claims.
+## Known behavior and risks
 
-## Risks and Mitigations
+- Small-corpus generations are repetitive, locally coherent at best, and often
+  malformed.
+- The model does not contain reliable factual knowledge or robust instruction
+  following.
+- No broad safety alignment has been performed.
+- Sampling controls change variability but do not create calibrated
+  confidence.
+- Hash-based retrieval and small evaluation fixtures are test backends, not
+  production validation.
+- Model and tokenizer artifacts are local and must be reconstructed or mounted.
 
-- Factuality risk: the model is not trained for factual QA. Use RAG with
-  citations for grounded answers.
-- Safety risk: the model is not alignment-trained. The eval harness includes
-  benign synthetic refusal tests, but this is not a safety certification.
-- Overclaiming risk: all docs state that the model is compact and
-  educational-scale.
-- Reproducibility risk: configs, seeds, checkpoint metadata, local experiment
-  tracking, and ignored artifact rules keep runs repeatable without committing
-  large binaries.
+See [`limitations.md`](limitations.md) for system-level limitations and
+[`github_issues_plan.md`](github_issues_plan.md) for the measured improvement
+roadmap.

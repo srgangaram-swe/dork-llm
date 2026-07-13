@@ -1,6 +1,6 @@
 # Security Policy
 
-Dork LLM is an educational/portfolio project, but it ships a few components that
+AxiomStack is a research and portfolio project, but it ships components that
 warrant a clear security note.
 
 ## Reporting a vulnerability
@@ -15,10 +15,13 @@ vulnerabilities. Expect an acknowledgement within a few days.
   no dunder access, whitelisted builtins, stdout captured). It is a *best-effort*
   guard for demos, **not** a security sandbox. Do not expose it to untrusted input
   in production; run untrusted code in a real sandbox (container/gVisor/WASM).
-- **The FastAPI service** ships without authentication and is intended for local
-  use. Put it behind an auth proxy and rate limiting before any deployment.
+- **The FastAPI service** is intended for local use. Keep administrative
+  ingestion, evaluation, and agent routes private; add authentication,
+  authorization, and rate limiting before public deployment.
 - **Model outputs** from the tiny GPT are not factual or safety-aligned at scale;
   the safety-refusal behavior is a benign, synthetic demonstration only.
+- **Demo mode** uses a deterministic rule-based provider. The runtime and UI
+  label it explicitly; it is not a DorkLLM capability claim.
 - **Experiment tracking** is local by default. W&B mirroring is opt-in; do not
   place secrets, proprietary prompts, or private dataset contents in run configs
   or metric payloads.

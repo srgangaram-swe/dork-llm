@@ -1,110 +1,166 @@
-# Architecture
+# AxiomStack architecture
 
-Dork LLM is one Python package (`dork`) with clearly separated subsystems, a thin
-CLI and script layer, and a serving layer. This document explains how the pieces
-fit together and the design decisions behind them.
+AxiomStack connects three concerns that are often separated in portfolio work:
+model research, statistical evaluation, and product delivery. DorkLLM is the
+model family; DorkChat is one client of a shared typed service layer.
 
-## High-level data flow
+## System context
 
+```mermaid
+flowchart TB
+    subgraph Research["Model and statistical research"]
+        Corpus --> Tokenizer --> DorkLLM
+        DorkLLM --> Pretrain
+        DorkLLM --> SFT
+        Pretrain --> Eval
+        SFT --> Eval
+    end
+
+    subgraph Grounding["Evidence and tools"]
+        Documents --> Chunker --> Embedder --> Store
+        Store --> Retrieval --> RAG
+        RAG --> Agent
+    end
+
+    subgraph Runtime["Shared runtime"]
+        Resolver[Model resolver] --> Service[DorkService]
+        RAG --> Service
+        Agent --> Service
+        Service --> API[FastAPI]
+        Service --> Dashboard[Streamlit]
+        API --> DorkChat
+    end
+
+    DorkLLM --> Resolver
+    Eval -. regression evidence .-> Resolver
 ```
-                ┌──────────────────────────── dork (package) ───────────────────────────┐
- corpus ─▶ tokenizer ─▶ TinyGPT ─▶ training ─▶ checkpoint ─▶ generation                  │
-                                                          │                              │
- docs ─▶ loaders ─▶ chunking ─▶ embeddings ─▶ vector store ─▶ retrieval ─▶ RAG answer    │
-                                                          │           │                  │
-                                                          ▼           ▼                  │
-                                                       agents      evaluation            │
-                └────────────────────────────────────────┬─────────────┬────────────────┘
-                                                          ▼             ▼
-                                                   serving (FastAPI) · dashboard (Streamlit)
-```
 
-## Modules
+## Package boundaries
 
 | Package | Responsibility |
 |---|---|
-| `dork.utils` | Config (pydantic), logging, seeding, paths, I/O, local experiment tracking. No ML deps. |
-| `dork.data` | Corpus preparation (offline fallback) and memory-mapped token batching. |
-| `dork.tokenizer` | `Tokenizer` interface; char + byte-level BPE backends; factory. |
-| `dork.models` | `TinyGPT` and its transformer blocks (attention, GELU/SwiGLU MLPs, LayerNorm/RMSNorm, RoPE). |
-| `dork.training` | Trainer loop, cosine LR schedule, checkpointing. |
-| `dork.generation` | Sampling primitives, `Generator`, and `LanguageModel` providers. |
-| `dork.evaluation` | Evaluator ABC + registry, suites, reporting, harness. |
-| `dork.rag` | Loaders, chunking, embeddings, vector stores, reranker, pipeline. |
-| `dork.agents` | Tools + the `ResearchAgent`. |
-| `dork.serving` | Shared `DorkService` + metrics + API schemas. |
-| `dork.pipelines` | High-level orchestration shared by CLI, scripts, and service. |
+| `dork.data` | Public-corpus preparation and memory-mapped token batches |
+| `dork.tokenizer` | Character and byte-level BPE implementations behind one interface |
+| `dork.models` | DorkLLM attention, normalization, MLP blocks, model and cache |
+| `dork.training` | Pretraining, causal SFT, schedules, exact checkpoint payloads |
+| `dork.generation` | Sampling, tokenizer/model bridge and provider abstraction |
+| `dork.evaluation` | Registered suites, bounded metrics, reports and gates |
+| `dork.rag` | Provenance-preserving ingestion, retrieval, reranking and citations |
+| `dork.agents` | Bounded tools and inspectable execution trajectories |
+| `dork.serving` | Runtime settings, model resolution, shared state, schemas and metrics |
+| `dork.pipelines` | CLI/script orchestration for reproducible offline workflows |
 
-## Key design decisions
+`apps/api.py`, `apps/dashboard.py`, and `apps/web/` are delivery adapters. Model,
+retrieval, and evaluation policy stays below those adapters.
 
-### 0. Small-model track with modern architecture switches
-The default config remains intentionally tiny for laptop demos, but the model
-code now supports a stronger training track inspired by modern decoder LLMs:
-RoPE positional encoding, RMSNorm, SwiGLU feed-forward blocks, and per-layer
-stochastic depth. These are exposed through typed config fields, so experiments
-can compare baseline GPT-2-style blocks against the stronger profile without
-forking model code.
+## DorkLLM attention path
 
-`configs/dorkllm_frontier.yaml` is the canonical "make it actually better"
-profile: TinyStories-oriented data, larger BPE vocabulary, longer context,
-8-layer/512-width transformer, gradient accumulation, and separate SFT artifacts.
+Each block is pre-normalized and preserves a single residual stream:
 
-### 1. Local-first with graceful fallbacks
-Every subsystem has a zero-dependency path so the platform runs and self-tests
-offline, then upgrades transparently:
+```text
+x = x + drop_path(attention(norm(x)))
+x = x + drop_path(mlp(norm(x)))
+```
 
-| Subsystem | Offline default | Production backend |
-|---|---|---|
-| Language model | `MockLanguageModel` (deterministic) | trained `TinyGPT` / HF model |
-| Corpus | bundled public-domain text | TinyShakespeare/TinyStories download |
-| Embeddings | `HashEmbedder` (hashing vectorizer) | sentence-transformers |
-| Vector store | `MemoryVectorStore` (NumPy) | ChromaDB |
+The attention projection supports standard multi-head attention or grouped-
+query attention. With `n_head=8` and `n_kv_head=2`, eight query heads share two
+key/value heads. Keys and values remain compact in the cache and expand only for
+the attention operation. Optional per-head QK RMS normalization accumulates in
+float32 for half-precision stability.
 
-This makes CI fast and hermetic, lets reviewers run everything without a GPU, and
-keeps the abstractions honest (each interface has ≥2 implementations).
+Cached multi-token chunks need an absolute-position mask. PyTorch's built-in
+non-square causal mask is upper-left aligned, so AxiomStack constructs an
+offset-aware boolean mask whenever a chunk is appended to a prefix. Tests compare
+full prefill, chunked cache, one-token cache, fused SDPA, and the explicit
+masked-softmax path.
 
-### 2. One orchestration layer, four front-ends
-`dork.pipelines` holds the workflow logic. The Typer CLI (`dork`), the `scripts/`
-entry points (what the Makefile calls), the `DorkService` behind the API, and the
-static Matrix chat web app all call the same serving/generation/RAG paths — no
-duplicated logic, identical behavior everywhere.
+## Training objectives
 
-### 3. Typed configs, validated at the edge
-Training configs are fully typed pydantic models (`TinyGPTConfig`); a malformed
-value fails at load time with a clear error, not deep in a training loop. Eval and
-RAG configs are validated but permissive (`extra="allow"`) so they're easy to extend.
+Pretraining forms conventional shifted token windows. SFT constructs one joined
+instruction/response sequence, then uses `sequence[:-1]` as input and
+`sequence[1:]` as labels. Targets before the first response token and padded
+positions receive the ignore index. This makes the final prompt position predict
+the first response token and prevents same-position identity learning.
 
-### 4. Lazy heavy imports
-`torch` is imported lazily inside the functions that need it, so the eval/RAG/agent
-stack imports and runs without the `[train]` extra installed. The package's public
-API stays convenient without forcing a 2 GB dependency on every user.
+Checkpoint payloads contain model configuration, state, optimizer state,
+training step, validation loss, tokenizer path, and stage metadata. Generated
+artifacts remain outside git.
 
-### 5. Provenance everywhere
-RAG chunks carry their source path and character offsets, so every citation points
-back to an exact span. Checkpoints embed the model config and tokenizer path, so a
-model is self-describing and reproducible.
+## Model runtime and readiness
 
-### 6. Local-first experiment tracking
-Training, SFT, evaluation, benchmarking, and scaling runs write JSON metadata,
-metrics, and summaries under `experiments/`. W&B mirroring is optional and only
-used when explicitly enabled, so CI and offline demos stay dependency-light.
+Serving settings are read once at the boundary. Resolution considers an explicit
+artifact first, then modern-small SFT, modern-small base, baseline SFT, and
+baseline base candidates. Every local candidate must pass checkpoint and
+tokenizer compatibility validation.
 
-## Request lifecycle (RAG query example)
+Strict mode reports not-ready when the requested provider cannot load. The
+deterministic mock exists only in explicit demo mode. Readiness metadata includes
+requested and active provider, model name, artifact, device, and a safe
+degradation reason. The same selected `LanguageModel` instance is injected into
+RAG, so direct and grounded paths cannot silently use different providers.
 
-1. `POST /rag/query` → `DorkService.rag_query`
-2. `RagPipeline.retrieve`: embed query → vector search top-k → lexical rerank → score filter
-3. If nothing clears the threshold and `refuse_when_insufficient` → **refuse**
-4. Otherwise build a grounded prompt and call the configured `LanguageModel`
-5. Extract `[n]` citations, map them back to source chunks, return `RagAnswer`
+## DorkChat request lifecycle
 
-## Testing & CI
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant W as DorkChat
+    participant A as FastAPI
+    participant S as DorkService
+    participant R as RAG / DorkLLM
 
-- **Unit tests** cover tokenizers, sampling, chunking, embeddings, the vector
-  store, metrics, the agent tools, and the harness — all offline.
-- **Integration tests** train a tiny model for a few steps and assert the loss
-  decreases and a checkpoint round-trips.
-- **`scripts/smoke_test.py`** exercises the *entire* platform end-to-end in CI.
-- CI matrix runs on Python 3.11 and 3.12 with ruff, black, mypy, and pytest.
+    U->>W: submit bounded conversation
+    W->>A: POST /api/v1/chat/stream
+    A-->>W: meta event (request + runtime)
+    A->>S: normalized messages and controls
+    S->>R: grounded query or model prompt
+    R-->>S: answer + evidence
+    loop streamed presentation chunks
+        S-->>W: delta event
+    end
+    S-->>W: citation events
+    S-->>W: done event (mode, model, latency)
+    W-->>U: answer, provenance and evidence
+```
 
-See [eval_harness.md](eval_harness.md), [rag_design.md](rag_design.md), and
-[agent_design.md](agent_design.md) for subsystem deep-dives.
+The legacy `/chat` JSON endpoint remains for compatibility. DorkChat prefers the
+versioned SSE endpoint, uses `AbortController` for cancellation, and falls back
+only when streaming is unavailable. Browser history is bounded and persisted
+locally; the server validates item counts and content lengths again at the trust
+boundary.
+
+## Retrieval provenance
+
+Documents become chunks with source paths and exact character offsets. Retrieval
+returns scored chunks, reranking is deterministic, and citations map answer
+markers to source, chunk id, snippet and score. A minimum evidence threshold can
+force refusal. Current citation checks validate marker mapping and heuristic
+overlap; claim-level entailment is future work.
+
+## Verification strategy
+
+| Layer | Checks |
+|---|---|
+| Pure math/utilities | Sampling, F1 bounds, schedules, configuration validators |
+| Model | Shape, objective, GQA/cache width, causal parity, checkpoint compatibility |
+| Service | Injected providers, resolution failures, shared RAG model, readiness, metrics |
+| API | Pydantic bounds, legacy JSON contract, SSE event order and safe errors |
+| Browser | Pure state/stream utilities, responsive chat flow and accessibility semantics |
+| System | Tiny training/checkpoint smoke and browser-to-API integration |
+
+CI exercises Python 3.11, 3.12 and 3.13 for pull requests and pushes involving
+`dev`, `main`, or `prod`. API dependencies are installed explicitly so tests
+cannot pass through `importorskip`. The container uses a separate build stage,
+an allowlisted copy context, and a non-root runtime user.
+
+## Delivery topology
+
+```text
+short-lived branch -> dev -> main -> prod
+```
+
+Feature work integrates through `dev`. Stable portfolio promotion goes from
+`dev` to `main`; deployment promotion goes from `main` to `prod`. Branch tips
+are ancestry-checked before short-lived branches are deleted. The live roadmap
+and acceptance criteria are documented in
+[`github_issues_plan.md`](github_issues_plan.md).

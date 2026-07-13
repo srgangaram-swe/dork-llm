@@ -196,7 +196,7 @@ def list_runs(out_dir: str | Path = "experiments") -> list[dict[str, Any]]:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="List local Dork LLM experiment runs.")
+    ap = argparse.ArgumentParser(description="List local AxiomStack experiment runs.")
     ap.add_argument("--out-dir", default="experiments")
     args = ap.parse_args()
     print(json.dumps(list_runs(args.out_dir), indent=2))

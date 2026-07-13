@@ -56,6 +56,8 @@ class TinyGPT(nn.Module):
                     norm_type=config.norm_type,
                     mlp_type=config.mlp_type,
                     stochastic_depth=float(drop_path_rates[i]),
+                    n_kv_head=config.n_kv_head,
+                    qk_norm=config.qk_norm,
                 )
                 for i in range(config.n_layer)
             ]

@@ -72,7 +72,7 @@ def _write_markdown(path: Path, report: dict[str, Any]) -> Path:
     lines: list[str] = []
     model = report.get("model", {})
     gate = report.get("gate", {})
-    lines.append("# Dork LLM — Evaluation Report\n")
+    lines.append("# AxiomStack — Evaluation Report\n")
     lines.append(
         f"- **Model:** `{model.get('name', '?')}` (provider: `{model.get('provider', '?')}`)"
     )
@@ -159,7 +159,7 @@ def _write_plot(path: Path, report: dict[str, Any]) -> Path | None:
     bars = ax.bar(labels, values, color="#4C78A8")
     ax.set_ylim(0, 1.05)
     ax.set_ylabel("score")
-    ax.set_title(f"Dork LLM eval — {report.get('model', {}).get('name', '')}")
+    ax.set_title(f"AxiomStack eval — {report.get('model', {}).get('name', '')}")
     ax.tick_params(axis="x", rotation=30)
     for bar, v in zip(bars, values, strict=False):
         ax.text(bar.get_x() + bar.get_width() / 2, v + 0.02, f"{v:.2f}", ha="center", fontsize=8)

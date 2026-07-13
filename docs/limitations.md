@@ -1,75 +1,93 @@
 # Limitations
 
-Dork LLM is a compact LLM systems project. It is meant to be impressive because
-it is complete, tested, reproducible, and honest, not because it pretends to be a
-frontier model.
+AxiomStack is a compact language-model systems project. Its value is the
+inspectable connection among model math, statistical evidence, and full-stack
+delivery—not a claim that DorkLLM is a frontier model or that DorkChat is ready
+for unsupervised public use.
 
-## Model Scale
+## Model scale and behavior
 
-The Tiny GPT is millions of parameters, not billions. It can learn local text
-style and short continuation patterns, but it is not a general assistant, a
-factual model, or an instruction-tuned system.
+DorkLLM has millions, not billions, of parameters and trains on small public
+corpora. Expected weaknesses include:
 
-Expected weaknesses:
-
-- repetitive generations;
-- malformed words;
+- repetition and malformed text;
 - weak long-range coherence;
-- no reliable factual knowledge;
-- no strong safety alignment;
-- sensitivity to small-data training choices.
+- unreliable factual knowledge and instruction following;
+- sensitivity to seed, data, and optimization choices;
+- no broad safety alignment.
+
+Sampling temperature and retrieval scores are not calibrated confidence
+probabilities. The UI must not present them that way.
+
+## Artifacts and chat readiness
+
+Checkpoints and tokenizers are generated locally and ignored by git. A fresh
+clone therefore has no trained DorkLLM until the documented training commands
+run or a compatible artifact is mounted. Strict service mode reports not-ready
+instead of silently replacing the model. Explicit demo mode uses a deterministic
+rule-based provider and labels it as a demo.
+
+The browser-to-model path demonstrates integration; it does not turn the small
+from-scratch model into a general assistant. RAG can improve grounding only when
+retrieval finds relevant evidence and the configured generator follows the
+grounded prompt.
 
 ## Data
 
-The default data is Tiny Shakespeare or a public-domain fallback excerpt. This is
-useful for local training and architecture demonstration, but it does not cover
-modern factual knowledge, instruction following, coding, multilingual behavior,
-or production support conversations.
+The default corpus is Tiny Shakespeare or a bundled public-domain fallback. The
+modern-small path caps locally downloaded TinyStories input by default. These
+data do not cover modern factual knowledge, robust instructions, coding,
+multilingual behavior, or representative production traffic.
 
-## Evaluation
+No LANL, employer, classified, proprietary, private, or sensitive data is used
+or required.
 
-The evaluation datasets are intentionally small and synthetic. They are useful
-for regression tests and showing harness design, but they are not broad enough
-to certify deployment readiness.
+## Statistical evidence
 
-RAG faithfulness uses heuristic overlap and citation checks. It can catch some
-obvious failures, but it is not a substitute for human review, entailment models,
-or production monitoring.
+Current evaluation datasets are small and largely synthetic. They are useful
+for deterministic regression testing, not deployment certification.
 
-## RAG
+The committed scaling study changes multiple architectural factors across a
+small number of configurations and uses a single seed. Its fitted trend is
+descriptive, not a validated scaling law. The v0.3 milestone explicitly tracks
+compute-matched designs, repeated seeds, paired uncertainty, calibration,
+risk-coverage analysis, and retrieval confidence intervals.
 
-The default hash embedder is deterministic and offline-friendly, but semantic
-retrieval quality is limited. For more realistic retrieval, install the `[rag]`
-extra and use `sentence_transformers`.
+The pre-v0.2 SFT comparison is not valid because the original label construction
+used same-position rather than next-token targets. v0.2 fixes the objective and
+tests; corrected quality numbers require a new artifact and fixed evaluation
+protocol.
 
-The local vector store is simple and appropriate for demos. At larger scale, use
-ChromaDB, FAISS, LanceDB, or a managed vector database with observability,
-access control, and reindexing workflows.
+## Retrieval and agents
 
-## Agent
+The default hash embedder and memory vector store are deterministic test
+backends with limited semantic quality. Citation extraction verifies marker-to-
+chunk mapping, not that every generated claim is entailed by its citation.
 
-The agent uses deterministic routing rather than a general planner. This makes
-it reliable and testable for a portfolio project, but it does not demonstrate
-complex autonomous planning. The local Python execution tool is not a production
-security boundary.
+The research agent uses bounded deterministic routing. Its local Python tool is
+not a hardened security boundary and must not be exposed to untrusted public
+users.
 
-## Serving
+## Serving and deployment
 
-The FastAPI service keeps metrics in memory and runs a single local process. A
-production deployment would need persistent metrics, tracing, auth, rate limits,
-queueing, autoscaling, model warmup, batching, and stronger error isolation.
+The service is a local research runtime. It has in-process model state and
+metrics and no durable conversation store. A public deployment still needs the
+authentication, authorization, rate limiting, persistent telemetry, supply-
+chain scanning, load validation, and rollback work tracked in the roadmap.
 
-## What This Project Demonstrates
+Administrative ingestion, evaluation, and agent routes should remain local or
+protected until those controls exist.
 
-It demonstrates practical LLM engineering:
+## What the repository does demonstrate
 
-- transformer internals;
-- tokenizer and training pipeline;
-- eval harness design;
-- retrieval and citation plumbing;
-- agent tool orchestration;
-- API/dashboard serving;
-- tests, CI, Docker, configs, and docs.
+- explicit transformer, attention, normalization, and causal-objective code;
+- tested training, post-training, checkpoint, and inference paths;
+- an extensible evaluation and experiment framework;
+- source-provenance retrieval and bounded tools;
+- typed API/service boundaries and an accessible browser client;
+- Python and browser tests, CI, a non-root container, and documented delivery
+  governance.
 
-It does not demonstrate frontier-scale pretraining, RLHF, large distributed
-training, proprietary data work, or production security hardening.
+It does not yet demonstrate frontier pretraining, broad post-training,
+production-scale distributed training, calibrated deployment readiness, or a
+security-reviewed public service.
